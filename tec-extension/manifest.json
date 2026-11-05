@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Estudei Pro ⚡ Ponte Automática Tec Concursos",
+  "version": "2.0.0",
+  "description": "Sincroniza automaticamente suas questões Certas e Erradas do Tec Concursos (/estatisticas/atividades e cadernos) direto com o seu Web App Estudei Pro.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.tecconcursos.com.br/*",
+    "http://localhost:3000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.tecconcursos.com.br/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
