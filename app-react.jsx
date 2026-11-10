@@ -135,6 +135,7 @@ function formatWeekRangeLabel(days) {
 }
 
 function createInitialPlan() {
+  const today = toISODate(0);
   const baseGuide = (window.TRT1_TI_GUIDE || []).map((d) => ({
     ...d,
     topicos: (d.topicos || []).map((t) => ({
@@ -154,7 +155,32 @@ function createInitialPlan() {
     disciplinas: baseGuide,
     sessions: [],
     errorNotebook: [],
-    manualStreakDays: {}
+    manualStreakDays: { [today]: true }
+  };
+}
+
+function createSerproPlan() {
+  const today = toISODate(0);
+  const baseGuide = (window.SERPRO_TI_GUIDE || []).map((d) => ({
+    ...d,
+    topicos: (d.topicos || []).map((t) => ({
+      ...t,
+      concluido: false,
+      acertos: 0,
+      erros: 0,
+      ultimoEstudo: null
+    }))
+  }));
+
+  return {
+    id: 'plan_serpro_2023',
+    nome: 'SERPRO / 2023 - Analista - Tecnologia (Tec Concursos)',
+    weeklyGoalHours: 20,
+    weeklyGoalQuestions: 150,
+    disciplinas: baseGuide,
+    sessions: [],
+    errorNotebook: [],
+    manualStreakDays: { [today]: true }
   };
 }
 
@@ -180,17 +206,43 @@ function playBeep() {
    ========================================================================== */
 function App() {
   const [appData, setAppData] = useState(() => {
+    const today = toISODate(0);
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.plans && parsed.plans.length > 0) return parsed;
+        if (parsed && Array.isArray(parsed.plans) && parsed.plans.length > 0) {
+          let plans = [...parsed.plans];
+          const hasSerpro = plans.some((p) => p.id === 'plan_serpro_2023');
+          if (!hasSerpro && Array.isArray(window.SERPRO_TI_GUIDE) && window.SERPRO_TI_GUIDE.length > 0) {
+            plans.push(createSerproPlan());
+          }
+          // Marca automaticamente o dia de hoje como estudado ao abrir o app/painel no dia
+          plans = plans.map((p) => ({
+            ...p,
+            manualStreakDays: { ...(p.manualStreakDays || {}), [today]: true }
+          }));
+          const nextActivePlanId =
+            !parsed.serproAddedV1 && plans.some((p) => p.id === 'plan_serpro_2023')
+              ? 'plan_serpro_2023'
+              : parsed.activePlanId || plans[0].id;
+          return {
+            ...parsed,
+            serproAddedV1: true,
+            activePlanId: nextActivePlanId,
+            plans
+          };
+        }
       }
     } catch (e) {}
+    const initialPlans = [createSerproPlan(), createInitialPlan()].filter(
+      (p) => Array.isArray(p.disciplinas) && p.disciplinas.length > 0
+    );
     return {
       theme: 'dark',
-      activePlanId: 'plan_trt1_ti',
-      plans: [createInitialPlan()]
+      serproAddedV1: true,
+      activePlanId: initialPlans[0]?.id || 'plan_serpro_2023',
+      plans: initialPlans.length > 0 ? initialPlans : [createInitialPlan()]
     };
   });
 
@@ -226,7 +278,7 @@ function App() {
   // Edital state
   const [editalFilter, setEditalFilter] = useState('all');
   const [editalSearch, setEditalSearch] = useState('');
-  const [expandedDiscs, setExpandedDiscs] = useState({ '63615': true, '63611': true });
+  const [expandedDiscs, setExpandedDiscs] = useState({ '92020': true, '92030': true, '63615': true, '63611': true });
 
   // FLOW TIMER STATE (Modo Dark igual à Imagem 2 por padrão, 25 min cada bolinha, reset diário a cada 24h)
   const [flow, setFlow] = useState(() => ({
@@ -253,7 +305,8 @@ function App() {
     } catch (e) {}
   }, [flow]);
 
-  // Verifica a cada 30 segundos se virou o dia (24h) para resetar as sessões/bolinhas e minutos do dia no timer!
+  // Verifica a cada 30 segundos se virou o dia (24h) para resetar as sessões/bolinhas e minutos do dia no timer,
+  // e marca automaticamente o dia atual como estudado!
   useEffect(() => {
     const checkDayReset = () => {
       const today = toISODate(0);
@@ -269,11 +322,40 @@ function App() {
         }
         return prev;
       });
+      setAppData((prev) => {
+        const needsMark = prev.plans.some((p) => !p.manualStreakDays || p.manualStreakDays[today] !== true);
+        if (!needsMark) return prev;
+        return {
+          ...prev,
+          plans: prev.plans.map((p) => ({
+            ...p,
+            manualStreakDays: { ...(p.manualStreakDays || {}), [today]: true }
+          }))
+        };
+      });
     };
     checkDayReset();
     const id = setInterval(checkDayReset, 30000);
     return () => clearInterval(id);
   }, []);
+
+  // Garante que toda vez que abrir o Painel no dia, o dia atual seja marcado automaticamente sem precisar clicar
+  useEffect(() => {
+    if (activeTab === 'home') {
+      const today = toISODate(0);
+      setAppData((prev) => {
+        const needsMark = prev.plans.some((p) => !p.manualStreakDays || p.manualStreakDays[today] !== true);
+        if (!needsMark) return prev;
+        return {
+          ...prev,
+          plans: prev.plans.map((p) => ({
+            ...p,
+            manualStreakDays: { ...(p.manualStreakDays || {}), [today]: true }
+          }))
+        };
+      });
+    }
+  }, [activeTab]);
 
   const activePlan = useMemo(() => {
     return appData.plans.find((p) => p.id === appData.activePlanId) || appData.plans[0];
@@ -1321,10 +1403,44 @@ function App() {
           >
             <span className="brand-logo-icon">✓</span>
             <span>estudei</span>
-            <span style={{ fontSize: '11px', background: 'rgba(28, 130, 166, 0.25)', color: '#5BC0DE', padding: '2px 8px', borderRadius: '99px', fontWeight: 700 }}>
-              TRT 1 TI
-            </span>
           </a>
+
+          <select
+            value={activePlan.id}
+            onChange={(e) => {
+              const nextId = e.target.value;
+              const nextPlan = appData.plans.find((p) => p.id === nextId) || appData.plans[0];
+              setAppData((prev) => ({ ...prev, activePlanId: nextId }));
+              const firstDisc = nextPlan?.disciplinas?.[0];
+              if (firstDisc) {
+                setFlow((prev) => ({
+                  ...prev,
+                  planId: nextId,
+                  disciplinaId: firstDisc.id,
+                  topicoId: firstDisc.topicos?.[0]?.id || ''
+                }));
+              }
+            }}
+            style={{
+              marginLeft: 8,
+              background: 'rgba(28, 130, 166, 0.2)',
+              color: '#5BC0DE',
+              border: '1px solid rgba(91, 192, 222, 0.38)',
+              padding: '4px 10px',
+              borderRadius: 99,
+              fontSize: 11.5,
+              fontWeight: 800,
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+            title="Alternar Edital Ativo (SERPRO / TRT 1)"
+          >
+            {appData.plans.map((p) => (
+              <option key={p.id} value={p.id} style={{ background: '#1E222B', color: '#F8FAFC' }}>
+                {p.id === 'plan_serpro_2023' ? 'SERPRO TI (2023)' : p.id === 'plan_trt1_ti' ? 'TRT 1 TI (2025)' : p.nome}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="topbar-right">
@@ -1366,22 +1482,6 @@ function App() {
           </button>
 
           <button
-            className="btn-outline-mint"
-            onClick={handleOpenProjectFolder}
-            title="Abre a pasta do projeto no Windows Explorer"
-          >
-            📂 Abrir Pasta
-          </button>
-
-          <button
-            className="icon-btn"
-            onClick={handleResetZero}
-            title="Zerar todos os dados para 0h00min"
-          >
-            🧹
-          </button>
-
-          <button
             className="icon-btn"
             onClick={() => setAppData((prev) => ({ ...prev, theme: prev.theme === 'light' ? 'dark' : 'light' }))}
             title="Alternar Tema do Painel"
@@ -1405,7 +1505,14 @@ function App() {
               <li className={`nav-item ${activeTab === 'flow' ? 'active' : ''}`} onClick={() => setActiveTab('flow')}>
                 <span className="sidebar-curve-top" />
                 <span className="sidebar-curve-bottom" />
-                <div className="nav-item-left"><span>Flow & Histórico</span></div>
+                <div className="nav-item-left"><span>Flow & Timer</span></div>
+                <span className="nav-badge">{(activePlan.sessions || []).length}</span>
+              </li>
+
+              <li className={`nav-item ${activeTab === 'historico' ? 'active' : ''}`} onClick={() => setActiveTab('historico')}>
+                <span className="sidebar-curve-top" />
+                <span className="sidebar-curve-bottom" />
+                <div className="nav-item-left"><span>Histórico</span></div>
                 <span className="nav-badge">{(activePlan.sessions || []).length}</span>
               </li>
 
@@ -1419,7 +1526,9 @@ function App() {
               <li className={`nav-item ${activeTab === 'edital' ? 'active' : ''}`} onClick={() => setActiveTab('edital')}>
                 <span className="sidebar-curve-top" />
                 <span className="sidebar-curve-bottom" />
-                <div className="nav-item-left"><span>Edital TRT 1</span></div>
+                <div className="nav-item-left">
+                  <span>{activePlan.id === 'plan_serpro_2023' ? 'Edital SERPRO' : activePlan.id === 'plan_trt1_ti' ? 'Edital TRT 1' : 'Edital'}</span>
+                </div>
                 <span className="nav-badge">{metrics.topicosDone}/{metrics.topicosTotal}</span>
               </li>
 
@@ -1431,22 +1540,6 @@ function App() {
               </li>
             </ul>
           </div>
-
-          <div className="sidebar-footer">
-            <div style={{ fontWeight: 800, color: '#FFFFFF', marginBottom: '6px' }}>
-              📂 Diretório Local:
-            </div>
-            <div style={{ fontSize: '11px', wordBreak: 'break-all', opacity: 0.9, marginBottom: '8px' }}>
-              <code>C:\Users\Usuário\.gemini\antigravity\scratch\estudei-pro</code>
-            </div>
-            <button
-              className="btn-outline-mint"
-              style={{ width: '100%', justifyContent: 'center', fontSize: '11.5px', padding: '6px' }}
-              onClick={handleOpenProjectFolder}
-            >
-              📂 Abrir no Explorer
-            </button>
-          </div>
         </aside>
 
         {/* MAIN CONTENT */}
@@ -1454,6 +1547,8 @@ function App() {
           {activeTab === 'home' && (
             <HomeView
               plan={activePlan}
+              plans={appData.plans}
+              onSelectPlan={(nextId) => setAppData((prev) => ({ ...prev, activePlanId: nextId }))}
               metrics={metrics}
               onUpdatePlan={updateActivePlan}
               onStartFlow={startFlowFor}
@@ -1516,6 +1611,41 @@ function App() {
             />
           )}
 
+          {activeTab === 'historico' && (
+            <HistoricoConstanciaView
+              plan={activePlan}
+              onUpdatePlan={updateActivePlan}
+              onEditSessionQuestions={handleEditSessionQuestions}
+              onDeleteSession={(sessionId) => {
+                const sess = (activePlan.sessions || []).find((s) => s.id === sessionId);
+                updateActivePlan((p) => {
+                  const sessions = (p.sessions || []).filter((s) => s.id !== sessionId);
+                  const disciplinas = !sess
+                    ? p.disciplinas
+                    : p.disciplinas.map((d) => {
+                        if (d.id !== sess.disciplinaId) return d;
+                        return {
+                          ...d,
+                          topicos: d.topicos.map((t) => {
+                            if (t.id !== sess.topicoId) return t;
+                            return {
+                              ...t,
+                              acertos: Math.max(0, Number(t.acertos || 0) - Number(sess.acertos || 0)),
+                              erros: Math.max(0, Number(t.erros || 0) - Number(sess.erros || 0))
+                            };
+                          })
+                        };
+                      });
+                  return { ...p, sessions, disciplinas };
+                });
+                showToast(`<strong>Sessão removida do histórico.</strong>`);
+              }}
+              onOpenReg={() =>
+                setRegModal({ open: true, planId: activePlan.id, discId: flow.disciplinaId, topicoId: flow.topicoId, minutos: 25 })
+              }
+            />
+          )}
+
           {activeTab === 'estatisticas' && (
             <EstatisticasView
               plan={activePlan}
@@ -1531,6 +1661,8 @@ function App() {
           {activeTab === 'edital' && (
             <EditalView
               plan={activePlan}
+              plans={appData.plans}
+              onSelectPlan={(nextId) => setAppData((prev) => ({ ...prev, activePlanId: nextId }))}
               metrics={metrics}
               filter={editalFilter}
               setFilter={setEditalFilter}
@@ -1689,26 +1821,85 @@ function ExactFlowTimerCard({
   const isDark = flow.timerDark;
 
   const [dragPos, setDragPos] = useState(null);
+  const [isFollowingMouse, setIsFollowingMouse] = useState(false);
+  const followAnchorRef = useRef({ offsetX: 180, offsetY: 28 });
   const cardRef = useRef(null);
 
-  function handleMouseDownDrag(e) {
-    if (e.target.closest('button') || e.target.closest('.flow-dropdown-menu')) return;
+  // Modo mover sem segurar: quando ativo, o cronômetro acompanha o mouse livremente até clicar para soltar!
+  useEffect(() => {
+    if (!isFollowingMouse) return;
+
+    function handleWindowMouseMove(ev) {
+      const cardW = compact ? 325 : 390;
+      const nx = Math.max(8, Math.min(window.innerWidth - cardW - 8, ev.clientX - followAnchorRef.current.offsetX));
+      const ny = Math.max(8, Math.min(window.innerHeight - 180, ev.clientY - followAnchorRef.current.offsetY));
+      setDragPos({ x: nx, y: ny });
+    }
+
+    function handleWindowClickToDrop(ev) {
+      ev.stopPropagation();
+      setIsFollowingMouse(false);
+    }
+
+    function handleKeyDown(ev) {
+      if (ev.key === 'Escape') {
+        setIsFollowingMouse(false);
+      }
+    }
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    const timerId = setTimeout(() => {
+      window.addEventListener('mousedown', handleWindowClickToDrop, { once: true });
+    }, 40);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      clearTimeout(timerId);
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mousedown', handleWindowClickToDrop);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isFollowingMouse, compact]);
+
+  function handleCardPointerInitiate(e) {
+    if (e.target.closest('button') || e.target.closest('.flow-dropdown-menu') || e.target.closest('.flow-exact-circle')) {
+      return;
+    }
+    if (isFollowingMouse) {
+      setIsFollowingMouse(false);
+      return;
+    }
     e.preventDefault();
-    const rect = cardRef.current ? cardRef.current.getBoundingClientRect() : { left: 100, top: 100 };
+    const rect = cardRef.current ? cardRef.current.getBoundingClientRect() : { left: 100, top: 100, width: 390 };
     const startX = e.clientX;
     const startY = e.clientY;
     const origLeft = dragPos ? dragPos.x : rect.left;
     const origTop = dragPos ? dragPos.y : rect.top;
+    let movedWhileHolding = false;
 
     function onMove(ev) {
-      const nx = Math.max(8, Math.min(window.innerWidth - 320, origLeft + (ev.clientX - startX)));
-      const ny = Math.max(8, Math.min(window.innerHeight - 180, origTop + (ev.clientY - startY)));
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        movedWhileHolding = true;
+      }
+      const nx = Math.max(8, Math.min(window.innerWidth - 320, origLeft + dx));
+      const ny = Math.max(8, Math.min(window.innerHeight - 180, origTop + dy));
       setDragPos({ x: nx, y: ny });
     }
 
-    function onUp() {
+    function onUp(ev) {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      // Se deu apenas um clique (sem precisar ficar segurando o botão), ativa o modo que segue o mouse livremente!
+      if (!movedWhileHolding) {
+        followAnchorRef.current = {
+          offsetX: Math.max(24, Math.min(rect.width - 24, ev.clientX - origLeft)),
+          offsetY: Math.max(16, Math.min(80, ev.clientY - origTop))
+        };
+        setDragPos({ x: origLeft, y: origTop });
+        setIsFollowingMouse(true);
+      }
     }
 
     window.addEventListener('mousemove', onMove);
@@ -1730,15 +1921,13 @@ function ExactFlowTimerCard({
   return (
     <div
       ref={cardRef}
-      className={`flow-exact-window ${isDark ? 'is-dark' : 'is-light'}`}
-      style={{ ...baseStyle, ...floatingDragStyle }}
+      onMouseDown={handleCardPointerInitiate}
+      className={`flow-exact-window ${isDark ? 'is-dark' : 'is-light'} ${isFollowingMouse ? 'is-following-mouse' : ''}`}
+      style={{ ...baseStyle, ...floatingDragStyle, cursor: isFollowingMouse ? 'move' : 'grab' }}
+      title={isFollowingMouse ? 'Clique em qualquer lugar para soltar o cronômetro' : 'Clique uma vez para mover sem segurar'}
     >
-      {/* TOP BAR (DRAGGABLE HANDLE): MAC DOTS LEFT + DRAG PILL + RESET ↺ & MENU ⋮ RIGHT */}
-      <div
-        className="flow-exact-topbar flow-draggable-handle"
-        onMouseDown={handleMouseDownDrag}
-        title="Clique e arraste para mover o cronômetro pela tela"
-      >
+      {/* TOP BAR: MAC DOTS LEFT + RESET ↺ & MENU ⋮ RIGHT (SEM A PALAVRA ARRASTAR) */}
+      <div className="flow-exact-topbar flow-draggable-handle">
         <div className="flow-mac-dots">
           <button
             className="flow-mac-dot red"
@@ -1750,14 +1939,15 @@ function ExactFlowTimerCard({
             onClick={onOpenPiP}
             title="Destacar Mini-Tela Flutuante fora do navegador"
           />
-          <span className="flow-drag-pill" title="Arraste o cronômetro para qualquer lugar da tela">
-            ⠿ Arrastar
-          </span>
           {dragPos && (
             <button
               type="button"
               className="inline-edit-chip-btn"
-              onClick={() => setDragPos(null)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsFollowingMouse(false);
+                setDragPos(null);
+              }}
               title="Voltar o cronômetro para a posição original"
             >
               📍 Fixar
@@ -1770,7 +1960,7 @@ function ExactFlowTimerCard({
           <button
             className="flow-exact-icon-btn"
             onClick={() => setFlow((p) => ({ ...p, timerDark: !p.timerDark }))}
-            title="Alternar Modo Dark / Claro no Cronômetro"
+            title="Alternar Modo Dark / Branco no Cronômetro"
             style={{ fontSize: 13 }}
           >
             {isDark ? '🌙' : '☀️'}
@@ -1803,14 +1993,12 @@ function ExactFlowTimerCard({
         </div>
       </div>
 
-      {/* CENTER TITLE: "Flow", "Revisão", "Anki" or "Break" */}
+      {/* CENTER TITLE: "Flow", "Anki" or "Break" */}
       <div className="flow-exact-title" style={compact ? { fontSize: 20 } : {}}>
         {flow.mode === 'break'
           ? 'Break'
           : flow.studyContext === 'anki'
           ? 'Anki'
-          : flow.studyContext === 'revisao'
-          ? 'Revisão'
           : 'Flow'}
       </div>
 
@@ -1838,59 +2026,54 @@ function ExactFlowTimerCard({
         })}
       </div>
 
-      {/* CONTROLS ROW */}
-      <div className="flow-exact-controls">
+      {/* REDESIGNED MODERN CONTROLS ROW */}
+      <div className="flow-modern-controls">
         <button
-          className="flow-outline-play-btn"
-          onClick={() => onStartOrPause(true)}
+          type="button"
+          className={`flow-ctrl-btn ${flow.running ? 'pause' : 'primary'}`}
+          onClick={() => onStartOrPause(!flow.running)}
           title={
             flow.running
-              ? 'Pausar (Pausa o cronômetro SEM registrar nada ainda)'
+              ? 'Pausar cronômetro (sem registrar nada ainda)'
               : 'Iniciar sessão Flow'
           }
         >
           {flow.running ? (
-            <svg width="34" height="36" viewBox="0 0 34 36" fill="none">
-              <rect x="7" y="4" width="6.5" height="28" rx="1.5" stroke="#1C82A6" strokeWidth="2.4" />
-              <rect x="20.5" y="4" width="6.5" height="28" rx="1.5" stroke="#1C82A6" strokeWidth="2.4" />
-            </svg>
+            <>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="3" y="2" width="3.5" height="12" rx="1" />
+                <rect x="9.5" y="2" width="3.5" height="12" rx="1" />
+              </svg>
+              <span>Pausar</span>
+            </>
           ) : (
-            <svg width="34" height="36" viewBox="0 0 34 36" fill="none">
-              <polygon
-                points="8,4 29,18 8,32"
-                stroke="#1C82A6"
-                strokeWidth="2.4"
-                strokeLinejoin="round"
-                fill="transparent"
-              />
-            </svg>
+            <>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <polygon points="3,2 14,8 3,14" />
+              </svg>
+              <span>Iniciar</span>
+            </>
           )}
         </button>
 
-        {flow.running && (
-          <button
-            className="flow-side-action-btn"
-            onClick={() => onStartOrPause(false)}
-            title="Pausa sem registrar nada no histórico"
-          >
-            ⏸ Pausar
-          </button>
-        )}
-
         <button
-          className="flow-side-action-btn finish"
+          type="button"
+          className="flow-ctrl-btn finish"
           onClick={onFinalizeSession}
           title="Finaliza a sessão atual, pergunta os acertos/erros e registra no Histórico e Estatísticas!"
         >
-          ✓ Finalizar
+          <span>✓</span>
+          <span>Finalizar</span>
         </button>
 
         <button
-          className="flow-side-action-btn"
+          type="button"
+          className="flow-ctrl-btn break-btn"
           onClick={onToggleBreak}
-          title="Iniciar Break a qualquer momento"
+          title="Alternar para Break ou voltar para o Flow"
         >
-          {flow.mode === 'break' ? '⏱️ Voltar Flow' : `☕ Break (${flow.breakMinutes}m)`}
+          <span>{flow.mode === 'break' ? '⏱️' : '☕'}</span>
+          <span>{flow.mode === 'break' ? 'Voltar Flow' : `Break (${flow.breakMinutes}m)`}</span>
         </button>
       </div>
 
@@ -2256,7 +2439,7 @@ function FlowAndHistoryView({
         <div>
           <h1 className="page-title">⏱️ Flow & Histórico das Sessões</h1>
           <p className="page-subtitle">
-            Arraste o cronômetro pelo topo (<strong>⠿ Arrastar</strong>) para posicioná-lo onde quiser na tela. Ao clicar em <strong>✓ Finalizar</strong>, suas questões e assuntos vão direto para <strong>Estatísticas</strong>!
+            Clique uma vez no cronômetro para movê-lo pela tela sem precisar segurar, e clique novamente onde quiser soltar. Ao clicar em <strong>✓ Finalizar</strong>, suas questões e assuntos vão direto para <strong>Estatísticas</strong>!
           </p>
         </div>
         <button className="btn-outline-mint" onClick={onOpenPiP}>
@@ -3298,6 +3481,8 @@ function EstatisticasView({
    ========================================================================== */
 function HomeView({
   plan,
+  plans,
+  onSelectPlan,
   metrics,
   onUpdatePlan,
   onStartFlow,
@@ -3308,20 +3493,84 @@ function HomeView({
 }) {
   const [editingDiscId, setEditingDiscId] = useState(null);
   const [editingDiscName, setEditingDiscName] = useState('');
+  const [streakRangeFilter, setStreakRangeFilter] = useState('30d'); // '7d' | '30d' | '90d' | 'month' | 'all'
+  const [streakMonthFilter, setStreakMonthFilter] = useState('');
+
+  const todayIso = toISODate(0);
+
+  // Marca automaticamente o dia atual como estudado toda vez que abrir o Painel no dia
+  useEffect(() => {
+    if (!plan.manualStreakDays || plan.manualStreakDays[todayIso] !== true) {
+      onUpdatePlan((p) => ({
+        ...p,
+        manualStreakDays: { ...(p.manualStreakDays || {}), [todayIso]: true }
+      }));
+    }
+  }, [todayIso, plan.id]);
 
   const sessionDates = new Set((plan.sessions || []).map((s) => s.date));
   const isDayDone = (dateStr) => {
+    if (dateStr === todayIso && (!plan.manualStreakDays || plan.manualStreakDays[dateStr] === undefined)) {
+      return true;
+    }
     if (plan.manualStreakDays && plan.manualStreakDays[dateStr] !== undefined) {
-      return plan.manualStreakDays[dateStr];
+      return Boolean(plan.manualStreakDays[dateStr]);
     }
     return sessionDates.has(dateStr);
   };
 
   let streakCount = 0;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 365; i++) {
     if (isDayDone(toISODate(-i))) streakCount++;
     else break;
   }
+
+  // Lista completa de todos os dias estudados + filtro ao longo do tempo para o painel lateral
+  const studiedDaysFiltered = useMemo(() => {
+    const allDatesSet = new Set([todayIso]);
+    (plan.sessions || []).forEach((s) => {
+      if (s.date) allDatesSet.add(s.date);
+    });
+    Object.entries(plan.manualStreakDays || {}).forEach(([dStr, val]) => {
+      if (val) allDatesSet.add(dStr);
+    });
+
+    const weekDayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const min7 = toISODate(-6);
+    const min30 = toISODate(-29);
+    const min90 = toISODate(-89);
+    const currentYearMonth = todayIso.slice(0, 7);
+
+    const rows = Array.from(allDatesSet)
+      .filter((dStr) => isDayDone(dStr))
+      .filter((dStr) => {
+        if (streakMonthFilter && !dStr.startsWith(streakMonthFilter)) return false;
+        if (streakRangeFilter === '7d') return dStr >= min7;
+        if (streakRangeFilter === '30d') return dStr >= min30;
+        if (streakRangeFilter === '90d') return dStr >= min90;
+        if (streakRangeFilter === 'month') return dStr.startsWith(currentYearMonth);
+        return true;
+      })
+      .sort((a, b) => (a < b ? 1 : -1))
+      .map((dStr) => {
+        const daySessions = (plan.sessions || []).filter((s) => s.date === dStr);
+        const minutos = daySessions.reduce((acc, s) => acc + Number(s.minutos || 0), 0);
+        const questoes = daySessions.reduce((acc, s) => acc + Number(s.acertos || 0) + Number(s.erros || 0), 0);
+        const dt = new Date(dStr + 'T12:00:00');
+        const weekDay = !isNaN(dt.getTime()) ? weekDayNames[dt.getDay()] : '';
+        return {
+          dStr,
+          formattedDate: dStr.split('-').reverse().join('/'),
+          weekDay,
+          sessionsCount: daySessions.length,
+          minutos,
+          questoes,
+          isToday: dStr === todayIso
+        };
+      });
+
+    return rows;
+  }, [plan.sessions, plan.manualStreakDays, todayIso, streakRangeFilter, streakMonthFilter]);
 
   function handleEditWeeklyGoals() {
     const h = parseInt(prompt('Meta de Horas na Semana:', String(plan.weeklyGoalHours || 20)) || '20', 10);
@@ -3409,14 +3658,37 @@ function HomeView({
         </div>
       </div>
 
-      {/* CONSTÂNCIA INTERATIVA */}
+      {/* CONSTÂNCIA NOS ESTUDOS (MARCA HOJE AUTOMATICAMENTE, SEM A LISTA LATERAL DE PRESENÇA DIÁRIA) */}
       <div className="estudei-card streak-card">
         <div className="streak-header">
           <div>
             <div className="kpi-label">CONSTÂNCIA NOS ESTUDOS</div>
             <div style={{ fontSize: 14, marginTop: 4 }}>
-              <strong>{streakCount} dias seguidos</strong> estudados (clique em qualquer dia para marcar/desmarcar)
+              <strong>{streakCount} dias seguidos</strong> estudados
             </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span
+              style={{
+                background: 'rgba(16, 185, 129, 0.16)',
+                color: '#10B981',
+                border: '1px solid rgba(16, 185, 129, 0.35)',
+                borderRadius: 99,
+                padding: '4px 10px',
+                fontSize: 11.5,
+                fontWeight: 800
+              }}
+            >
+              ✓ Hoje ({todayIso.split('-').reverse().join('/')}) marcado automaticamente
+            </span>
+            <button
+              type="button"
+              className="btn-outline-mint"
+              style={{ padding: '5px 12px', fontSize: 12 }}
+              onClick={() => onSwitchTab('historico')}
+            >
+              📅 Abrir Histórico & Calendário →
+            </button>
           </div>
         </div>
         <div className="streak-pills">
@@ -3631,6 +3903,420 @@ function HomeView({
 }
 
 /* ==========================================================================
+   ABA HISTÓRICO NA BARRA LATERAL (CALENDÁRIO VISUAL DE CONSTÂNCIA +
+   HISTÓRICO DE SESSÕES COM FILTRO AO LONGO DO TEMPO — SEM LISTA DE "PRESENÇA DIÁRIA")
+   ========================================================================== */
+function HistoricoConstanciaView({
+  plan,
+  onUpdatePlan,
+  onEditSessionQuestions,
+  onDeleteSession,
+  onOpenReg
+}) {
+  const todayIso = toISODate(0);
+  const [calYearMonth, setCalYearMonth] = useState(() => todayIso.slice(0, 7)); // 'YYYY-MM'
+  const [periodFilter, setPeriodFilter] = useState('all'); // 'today' | '7d' | '30d' | 'month' | 'all' | 'customDay'
+  const [selectedDayIso, setSelectedDayIso] = useState(null);
+  const [discFilter, setDiscFilter] = useState('all');
+
+  const sessionDates = useMemo(() => new Set((plan.sessions || []).map((s) => s.date)), [plan.sessions]);
+  const isDayDone = (dateStr) => {
+    if (dateStr === todayIso && (!plan.manualStreakDays || plan.manualStreakDays[dateStr] === undefined)) {
+      return true;
+    }
+    if (plan.manualStreakDays && plan.manualStreakDays[dateStr] !== undefined) {
+      return Boolean(plan.manualStreakDays[dateStr]);
+    }
+    return sessionDates.has(dateStr);
+  };
+
+  function toggleDayStudied(dateStr) {
+    const curr = isDayDone(dateStr);
+    onUpdatePlan((p) => ({
+      ...p,
+      manualStreakDays: { ...(p.manualStreakDays || {}), [dateStr]: !curr }
+    }));
+  }
+
+  function changeMonth(delta) {
+    const [y, m] = calYearMonth.split('-').map(Number);
+    const dt = new Date(y, m - 1 + delta, 1);
+    const ny = dt.getFullYear();
+    const nm = String(dt.getMonth() + 1).padStart(2, '0');
+    setCalYearMonth(`${ny}-${nm}`);
+  }
+
+  const monthNamesPt = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+  const [yearNum, monthNum] = calYearMonth.split('-').map(Number);
+  const monthTitle = `${monthNamesPt[(monthNum - 1) % 12] || ''} ${yearNum}`;
+
+  // Constrói a grade de calendário mensal (Seg a Dom)
+  const calendarCells = useMemo(() => {
+    const firstDay = new Date(yearNum, monthNum - 1, 1);
+    const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+    const startDow = (firstDay.getDay() + 6) % 7; // 0 = Seg ... 6 = Dom
+    const cells = [];
+    for (let i = 0; i < startDow; i++) {
+      cells.push({ empty: true, key: `empty_${i}` });
+    }
+    for (let day = 1; day <= daysInMonth; day++) {
+      const iso = `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const daySessions = (plan.sessions || []).filter((s) => s.date === iso);
+      const minutos = daySessions.reduce((acc, s) => acc + Number(s.minutos || 0), 0);
+      const questoes = daySessions.reduce((acc, s) => acc + Number(s.acertos || 0) + Number(s.erros || 0), 0);
+      const studied = isDayDone(iso);
+      cells.push({
+        empty: false,
+        key: iso,
+        iso,
+        day,
+        studied,
+        minutos,
+        questoes,
+        sessionsCount: daySessions.length,
+        isToday: iso === todayIso
+      });
+    }
+    return cells;
+  }, [yearNum, monthNum, plan.sessions, plan.manualStreakDays, todayIso]);
+
+  const studiedCountInMonth = useMemo(
+    () => calendarCells.filter((c) => !c.empty && c.studied).length,
+    [calendarCells]
+  );
+
+  // Filtra as sessões de estudo ao longo do tempo
+  const filteredSessions = useMemo(() => {
+    const min7 = toISODate(-6);
+    const min30 = toISODate(-29);
+    return (plan.sessions || [])
+      .filter((s) => {
+        if (discFilter !== 'all' && s.disciplinaId !== discFilter) return false;
+        if (periodFilter === 'customDay' && selectedDayIso) return s.date === selectedDayIso;
+        if (periodFilter === 'today') return s.date === todayIso;
+        if (periodFilter === '7d') return s.date >= min7;
+        if (periodFilter === '30d') return s.date >= min30;
+        if (periodFilter === 'month') return (s.date || '').startsWith(calYearMonth);
+        return true;
+      })
+      .slice()
+      .reverse();
+  }, [plan.sessions, discFilter, periodFilter, selectedDayIso, todayIso, calYearMonth]);
+
+  const filteredSummary = useMemo(() => {
+    let totalSec = 0;
+    let acertos = 0;
+    let erros = 0;
+    filteredSessions.forEach((s) => {
+      totalSec += Number(s.segundos || Number(s.minutos || 0) * 60);
+      acertos += Number(s.acertos || 0);
+      erros += Number(s.erros || 0);
+    });
+    return {
+      count: filteredSessions.length,
+      totalMin: Math.round(totalSec / 60),
+      acertos,
+      erros
+    };
+  }, [filteredSessions]);
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">📅 Histórico & Calendário de Estudos</h1>
+          <p className="page-subtitle">
+            Visualize seus dias estudados no calendário mensal e filtre todo o seu histórico de sessões ao longo do tempo.
+          </p>
+        </div>
+        <button type="button" className="btn-primary-mint" onClick={onOpenReg}>
+          + Registrar Estudo
+        </button>
+      </div>
+
+      <div className="dashboard-grid">
+        {/* COLUNA ESQUERDA: CALENDÁRIO VISUAL MENSAL DE CONSTÂNCIA */}
+        <div className="estudei-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div className="kpi-label">CALENDÁRIO DE CONSTÂNCIA</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginTop: 2 }}>
+                {monthTitle} • <span style={{ color: '#5BC0DE' }}>{studiedCountInMonth} dias marcados</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                type="button"
+                className="btn-outline-mint"
+                style={{ padding: '5px 10px', fontSize: 13 }}
+                onClick={() => changeMonth(-1)}
+                title="Mês anterior"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                className="btn-outline-mint"
+                style={{ padding: '5px 10px', fontSize: 11.5 }}
+                onClick={() => {
+                  setCalYearMonth(todayIso.slice(0, 7));
+                  setSelectedDayIso(null);
+                  setPeriodFilter('all');
+                }}
+              >
+                Hoje
+              </button>
+              <button
+                type="button"
+                className="btn-outline-mint"
+                style={{ padding: '5px 10px', fontSize: 13 }}
+                onClick={() => changeMonth(1)}
+                title="Próximo mês"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+
+          <div className="cal-weekday-header">
+            {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((w) => (
+              <div key={w}>{w}</div>
+            ))}
+          </div>
+
+          <div className="cal-grid-7">
+            {calendarCells.map((cell) => {
+              if (cell.empty) {
+                return <div key={cell.key} className="cal-day-tile empty" />;
+              }
+              const isSelected = periodFilter === 'customDay' && selectedDayIso === cell.iso;
+              return (
+                <div
+                  key={cell.key}
+                  className={`cal-day-tile ${cell.studied ? 'studied' : ''} ${cell.isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}`}
+                  onClick={() => {
+                    if (isSelected) {
+                      setSelectedDayIso(null);
+                      setPeriodFilter('all');
+                    } else {
+                      setSelectedDayIso(cell.iso);
+                      setPeriodFilter('customDay');
+                    }
+                  }}
+                  onDoubleClick={() => toggleDayStudied(cell.iso)}
+                  title={`${cell.iso.split('-').reverse().join('/')} • Clique para filtrar sessões deste dia | Duplo clique para marcar/desmarcar dia`}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 800, fontSize: 12.5, color: 'var(--text-primary)' }}>{cell.day}</span>
+                    {cell.studied && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleDayStudied(cell.iso);
+                        }}
+                        style={{
+                          width: 16,
+                          height: 16,
+                          borderRadius: '50%',
+                          background: 'rgba(16, 185, 129, 0.25)',
+                          color: '#10B981',
+                          fontSize: 10,
+                          fontWeight: 900,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Dia estudado (clique no ✓ para alternar)"
+                      >
+                        ✓
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: cell.minutos > 0 ? '#5BC0DE' : 'var(--text-secondary)' }}>
+                    {cell.minutos > 0 ? formatMinutesToHm(cell.minutos) : cell.studied ? 'Estudado' : ''}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* COLUNA DIREITA: HISTÓRICO DE SESSÕES COM FILTROS AO LONGO DO TEMPO */}
+        <div className="estudei-card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div className="kpi-label">FILTRAR HISTÓRICO AO LONGO DO TEMPO</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)', marginTop: 2 }}>
+                {filteredSummary.count} sessões • {formatMinutesToHm(filteredSummary.totalMin)} •{' '}
+                <span style={{ color: '#00A859' }}>✓ {filteredSummary.acertos}</span> /{' '}
+                <span style={{ color: '#F22819' }}>✗ {filteredSummary.erros}</span>
+              </div>
+            </div>
+
+            <select
+              value={discFilter}
+              onChange={(e) => setDiscFilter(e.target.value)}
+              style={{
+                background: 'var(--bg-surface)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-card)',
+                borderRadius: 8,
+                padding: '6px 10px',
+                fontSize: 12,
+                fontWeight: 700
+              }}
+            >
+              <option value="all">Todas as matérias</option>
+              {plan.disciplinas.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="constancia-filter-bar">
+            {[
+              { id: 'all', label: 'Todo o período' },
+              { id: 'today', label: 'Hoje' },
+              { id: '7d', label: 'Últimos 7 dias' },
+              { id: '30d', label: 'Últimos 30 dias' },
+              { id: 'month', label: `Mês (${monthTitle})` }
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`constancia-filter-pill ${periodFilter === f.id ? 'active' : ''}`}
+                onClick={() => {
+                  setSelectedDayIso(null);
+                  setPeriodFilter(f.id);
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+            {periodFilter === 'customDay' && selectedDayIso && (
+              <button
+                type="button"
+                className="constancia-filter-pill active"
+                onClick={() => {
+                  setSelectedDayIso(null);
+                  setPeriodFilter('all');
+                }}
+              >
+                📅 Dia {selectedDayIso.split('-').reverse().join('/')} ✕
+              </button>
+            )}
+          </div>
+
+          <div style={{ maxHeight: 420, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {filteredSessions.length === 0 ? (
+              <div
+                style={{
+                  padding: 24,
+                  textAlign: 'center',
+                  color: 'var(--text-secondary)',
+                  background: 'var(--bg-surface)',
+                  borderRadius: 12,
+                  border: '1px dashed var(--border-card)',
+                  fontSize: 13
+                }}
+              >
+                Nenhuma sessão registrada neste filtro. Finalize uma sessão no <strong>Flow</strong> ou clique em <strong>+ Registrar Estudo</strong>!
+              </div>
+            ) : (
+              filteredSessions.map((s, idx) => (
+                <div
+                  key={s.id}
+                  className="fm-history-item"
+                  style={{ animationDelay: `${Math.min(idx * 45, 360)}ms` }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span
+                        style={{
+                          background: 'rgba(28, 130, 166, 0.25)',
+                          color: '#5BC0DE',
+                          padding: '2px 9px',
+                          borderRadius: 99,
+                          fontSize: 11.5,
+                          fontWeight: 800
+                        }}
+                      >
+                        ⏱️ {formatExactSeconds(s.segundos || s.minutos * 60)}
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 700 }}>
+                        {s.date ? s.date.split('-').reverse().join('/') : ''} •{' '}
+                        {s.startTime && s.endTime ? `${s.startTime} → ${s.endTime}` : s.time || ''}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13.5, fontWeight: 800, marginTop: 5, color: 'var(--text-primary)' }}>
+                      {s.disciplinaNome}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: '#5BC0DE', fontWeight: 700, marginTop: 2 }}>
+                      {s.categoria === 'Anki' ? 'Revisão Anki · tema livre' : `Tema: ${s.topicoNome || 'Geral'}`}
+                    </div>
+                    {s.notaErro && (
+                      <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                        📝 Nota: {s.notaErro}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      onClick={() => onEditSessionQuestions(s.id)}
+                      style={{
+                        border: '1px solid var(--border-card)',
+                        background: 'var(--bg-surface)',
+                        borderRadius: 10,
+                        padding: '5px 10px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        fontSize: 12.5,
+                        fontWeight: 800
+                      }}
+                      title="Editar questões certas e erradas desta sessão"
+                    >
+                      <span style={{ color: '#05B265' }}>✓ {s.acertos || 0}</span>
+                      <span style={{ color: '#F23022' }}>✗ {s.erros || 0}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>✎</span>
+                    </button>
+
+                    <button
+                      onClick={() => onDeleteSession(s.id)}
+                      style={{
+                        border: 'none',
+                        background: 'rgba(248,113,113,0.15)',
+                        color: '#F87171',
+                        borderRadius: 8,
+                        padding: '6px 8px',
+                        cursor: 'pointer',
+                        fontSize: 12
+                      }}
+                      title="Excluir sessão"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================================================
    CADERNO DE ERROS (COM AS ERRADAS E NOTAS MARCADAS NO FLOW / REGISTRO)
    ========================================================================== */
 function CadernoDeErrosView({ plan, metrics, onUpdatePlan, onStartFlow, showToast }) {
@@ -3816,6 +4502,8 @@ function CadernoDeErrosView({ plan, metrics, onUpdatePlan, onStartFlow, showToas
    ========================================================================== */
 function EditalView({
   plan,
+  plans,
+  onSelectPlan,
   metrics,
   filter,
   setFilter,
@@ -3841,6 +4529,7 @@ function EditalView({
   const [editingTopicText, setEditingTopicText] = useState('');
   const [addingTopicForDiscId, setAddingTopicForDiscId] = useState(null);
   const [newTopicText, setNewTopicText] = useState('');
+  const [collapsedParentTopics, setCollapsedParentTopics] = useState({});
 
   return (
     <div>
@@ -3848,7 +4537,7 @@ function EditalView({
         <div>
           <h1 className="page-title">Edital Verticalizado — {plan.nome}</h1>
           <p className="page-subtitle">
-            Todas as matérias e tópicos são <strong>editáveis</strong>: clique em <strong>✎ Editar</strong> ou <strong>+ Nova Matéria / Tópico</strong> para digitar e salvar.
+            Inclui os tópicos e subtópicos detalhados (extraídos de <strong>Ver detalhes</strong> no Tec Concursos). Todas as matérias e tópicos são <strong>editáveis</strong>.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -3867,6 +4556,37 @@ function EditalView({
           </button>
         </div>
       </div>
+
+      {/* BARRA DE SELEÇÃO RÁPIDA DE EDITAL (SERPRO 2023 / TRT 1 2025) */}
+      {Array.isArray(plans) && plans.length > 1 && (
+        <div className="edital-plan-switcher">
+          {plans.map((p) => {
+            const isSelected = p.id === plan.id;
+            const totalTop = (p.disciplinas || []).reduce((acc, d) => acc + (d.topicos?.length || 0), 0);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                className={`edital-plan-tab ${isSelected ? 'active' : ''}`}
+                onClick={() => onSelectPlan && onSelectPlan(p.id)}
+              >
+                <span>📋 {p.nome}</span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: '2px 7px',
+                    borderRadius: 99,
+                    background: isSelected ? 'rgba(91, 192, 222, 0.25)' : 'var(--bg-surface)',
+                    color: isSelected ? '#FFFFFF' : 'var(--text-secondary)'
+                  }}
+                >
+                  {(p.disciplinas || []).length} matérias • {totalTop} tópicos/subtópicos
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {addingNewDisc && (
         <div className="estudei-card" style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -4120,6 +4840,29 @@ function EditalView({
                 </div>
 
                 {filteredTopics.map((t, idx) => {
+                  // Descobre o tópico pai (nivel 0) e quantos subtópicos existem abaixo dele
+                  let parentLevel0Id = null;
+                  if ((t.nivel || 0) > 0 && q.length === 0 && filter === 'all') {
+                    for (let p = idx - 1; p >= 0; p--) {
+                      if ((filteredTopics[p].nivel || 0) === 0) {
+                        parentLevel0Id = filteredTopics[p].id;
+                        break;
+                      }
+                    }
+                    if (parentLevel0Id && collapsedParentTopics[parentLevel0Id]) {
+                      return null;
+                    }
+                  }
+
+                  let childSubtopicsCount = 0;
+                  if ((t.nivel || 0) === 0 && q.length === 0 && filter === 'all') {
+                    for (let c = idx + 1; c < filteredTopics.length; c++) {
+                      if ((filteredTopics[c].nivel || 0) > 0) childSubtopicsCount++;
+                      else break;
+                    }
+                  }
+
+                  const isParentCollapsed = Boolean(collapsedParentTopics[t.id]);
                   const ac = Number(t.acertos || 0);
                   const er = Number(t.erros || 0);
                   const tot = ac + er;
@@ -4131,9 +4874,12 @@ function EditalView({
                     <div
                       key={t.id}
                       className={`edital-topic-row ${t.concluido ? 'completed' : ''}`}
-                      style={{ gridTemplateColumns: '1fr 110px 110px 60px 150px' }}
+                      style={{
+                        gridTemplateColumns: '1fr 110px 110px 60px 150px',
+                        background: (t.nivel || 0) > 0 ? 'rgba(14, 75, 96, 0.06)' : undefined
+                      }}
                     >
-                      <div className="edital-topic-title" style={{ paddingLeft: Math.min(3, t.nivel || 0) * 16 }}>
+                      <div className="edital-topic-title" style={{ paddingLeft: Math.min(3, t.nivel || 0) * 18 }}>
                         <input
                           type="checkbox"
                           className="edital-checkbox"
@@ -4179,8 +4925,28 @@ function EditalView({
                             </button>
                           </div>
                         ) : (
-                          <span style={{ fontWeight: t.nivel === 0 ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: (t.nivel || 0) === 0 ? 700 : 500, display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            {(t.nivel || 0) > 0 && (
+                              <span style={{ color: '#5BC0DE', fontWeight: 800, fontSize: 11.5 }}>↳</span>
+                            )}
                             <span>{idx + 1}. {t.assunto}</span>
+                            {childSubtopicsCount > 0 && (
+                              <button
+                                type="button"
+                                className="subtopic-details-btn"
+                                onClick={() =>
+                                  setCollapsedParentTopics((prev) => ({
+                                    ...prev,
+                                    [t.id]: !prev[t.id]
+                                  }))
+                                }
+                                title="Mostrar ou ocultar os subtópicos detalhados deste tópico"
+                              >
+                                {isParentCollapsed
+                                  ? `▸ Ver detalhes (${childSubtopicsCount} subtópicos)`
+                                  : `▾ Subtópicos (${childSubtopicsCount})`}
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="inline-edit-chip-btn"

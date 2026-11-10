@@ -1438,55 +1438,108 @@ body {
   background: linear-gradient(90deg, #09090B 50%, transparent 50%);
 }
 
-/* GREEN OUTLINED PLAY TRIANGLE & PAUSE BARS + ACTION BUTTONS */
-.flow-exact-controls {
+/* REDESIGNED FLOW TIMER BUTTONS (CLEAN, MODERN PILL CONTROL BAR) */
+.flow-exact-controls,
+.flow-modern-controls {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 10px;
   flex-wrap: wrap;
+  width: 100%;
+  margin-top: 2px;
 }
 
-.flow-outline-play-btn {
-  background: transparent;
-  border: none;
+.flow-ctrl-btn {
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.1px;
   cursor: pointer;
-  padding: 6px 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #1C82A6;
-  transition: transform 0.15s ease, filter 0.15s ease;
-}
-.flow-outline-play-btn:hover {
-  transform: scale(1.1);
-  filter: brightness(1.15);
+  gap: 7px;
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+  user-select: none;
 }
 
-.flow-side-action-btn {
-  border: 1.5px solid #1C82A6;
-  background: transparent;
-  color: #38A3C7;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 12.5px;
-  font-weight: 700;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: all 0.15s ease;
+.flow-ctrl-btn:hover {
+  transform: translateY(-1.5px);
 }
-.flow-side-action-btn:hover {
-  background: rgba(28, 130, 166, 0.18);
+
+.flow-ctrl-btn:active {
+  transform: translateY(0) scale(0.97);
 }
-.flow-side-action-btn.finish {
-  background: #0E4B60;
-  border-color: #1C82A6;
+
+.flow-ctrl-btn.primary {
+  background: linear-gradient(135deg, #1C82A6 0%, #0E4B60 100%);
+  border: 1.5px solid #2899C2;
   color: #FFFFFF;
+  box-shadow: 0 4px 14px rgba(28, 130, 166, 0.35);
 }
-.flow-side-action-btn.finish:hover {
-  background: #156A87;
+.flow-ctrl-btn.primary:hover {
+  background: linear-gradient(135deg, #2294BC 0%, #125E78 100%);
+  box-shadow: 0 6px 18px rgba(28, 130, 166, 0.48);
+}
+
+.flow-ctrl-btn.pause {
+  background: rgba(245, 158, 11, 0.14);
+  border: 1.5px solid #F59E0B;
+  color: #FBBF24;
+}
+.flow-exact-window.is-light .flow-ctrl-btn.pause {
+  background: rgba(245, 158, 11, 0.12);
+  color: #B45309;
+  border-color: #D97706;
+}
+.flow-ctrl-btn.pause:hover {
+  background: rgba(245, 158, 11, 0.24);
+}
+
+.flow-ctrl-btn.finish {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1.5px solid #10B981;
+  color: #34D399;
+}
+.flow-exact-window.is-light .flow-ctrl-btn.finish {
+  background: rgba(5, 150, 105, 0.1);
+  color: #047857;
+  border-color: #059669;
+}
+.flow-ctrl-btn.finish:hover {
+  background: #059669;
+  color: #FFFFFF;
+  border-color: #10B981;
+}
+
+.flow-ctrl-btn.break-btn {
+  background: rgba(148, 163, 184, 0.12);
+  border: 1.5px solid rgba(148, 163, 184, 0.28);
+  color: #CBD5E1;
+}
+.flow-exact-window.is-light .flow-ctrl-btn.break-btn {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.18);
+  color: #334155;
+}
+.flow-ctrl-btn.break-btn:hover {
+  border-color: #5BC0DE;
+  color: #5BC0DE;
+}
+.flow-exact-window.is-light .flow-ctrl-btn.break-btn:hover {
+  border-color: #0E4B60;
+  color: #0E4B60;
+}
+
+.flow-exact-window.is-following-mouse {
+  outline: 2px dashed #5BC0DE;
+  outline-offset: 4px;
+  cursor: move !important;
+  box-shadow: 0 28px 65px rgba(0, 0, 0, 0.65), 0 0 0 3px rgba(91, 192, 222, 0.28) !important;
 }
 
 /* ==========================================================================
@@ -2197,4 +2250,209 @@ body.theme-light .disc-name-link {
   border-color: #1C82A6;
   color: var(--text-primary);
 }
+
+/* ==========================================================================
+   CONSTÂNCIA NOS ESTUDOS + PAINEL LATERAL DE DIAS ESTUDADOS E FILTRO NO TEMPO
+   ========================================================================== */
+.constancia-split-grid {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 18px;
+  margin-bottom: 18px;
+  align-items: stretch;
+}
+@media (max-width: 980px) {
+  .constancia-split-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.constancia-side-panel {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-card);
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.constancia-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.constancia-filter-pill {
+  border: 1px solid var(--border-card);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.constancia-filter-pill:hover {
+  border-color: #1C82A6;
+  color: var(--text-primary);
+}
+.constancia-filter-pill.active {
+  background: #0E4B60;
+  border-color: #1C82A6;
+  color: #FFFFFF;
+}
+
+.constancia-days-list {
+  max-height: 195px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-right: 4px;
+}
+
+.constancia-day-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bg-card-inner);
+  border: 1px solid var(--border-subtle);
+  font-size: 12.5px;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+.constancia-day-item:hover {
+  border-color: rgba(91, 192, 222, 0.35);
+  transform: translateX(2px);
+}
+
+/* EDITAL SWITCHER & SUBTOPICS DETAILS BUTTON */
+.edital-plan-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.edital-plan-tab {
+  border: 1.5px solid var(--border-card);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border-radius: 12px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.18s ease;
+}
+.edital-plan-tab:hover {
+  border-color: #1C82A6;
+  color: var(--text-primary);
+}
+.edital-plan-tab.active {
+  background: linear-gradient(135deg, #0E4B60 0%, #163C4D 100%);
+  border-color: #5BC0DE;
+  color: #FFFFFF;
+  box-shadow: 0 4px 14px rgba(14, 75, 96, 0.35);
+}
+
+.subtopic-details-btn {
+  border: 1px solid rgba(91, 192, 222, 0.4);
+  background: rgba(14, 75, 96, 0.32);
+  color: #5BC0DE;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 10.5px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+.subtopic-details-btn:hover {
+  background: #1C82A6;
+  color: #FFFFFF;
+}
+body.theme-light .subtopic-details-btn {
+  background: rgba(14, 75, 96, 0.12);
+  color: #0E4B60;
+  border-color: rgba(14, 75, 96, 0.35);
+}
+body.theme-light .subtopic-details-btn:hover {
+  background: #0E4B60;
+  color: #FFFFFF;
+}
+
+/* ==========================================================================
+   VISUAL CALENDAR GRID FOR HISTÓRICO & CONSTÂNCIA TAB
+   ========================================================================== */
+.cal-weekday-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.cal-grid-7 {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.cal-day-tile {
+  min-height: 62px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--bg-card-inner);
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  user-select: none;
+}
+.cal-day-tile:hover {
+  transform: translateY(-2px);
+  border-color: #1C82A6;
+}
+.cal-day-tile.empty {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+  pointer-events: none;
+}
+.cal-day-tile.studied {
+  background: linear-gradient(145deg, rgba(14, 75, 96, 0.55) 0%, rgba(16, 185, 129, 0.18) 100%);
+  border-color: rgba(16, 185, 129, 0.55);
+}
+body.theme-light .cal-day-tile.studied {
+  background: linear-gradient(145deg, rgba(14, 75, 96, 0.16) 0%, rgba(16, 185, 129, 0.18) 100%);
+  border-color: rgba(14, 75, 96, 0.45);
+}
+.cal-day-tile.today {
+  box-shadow: 0 0 0 2px #5BC0DE;
+}
+.cal-day-tile.selected {
+  border-color: #5BC0DE;
+  background: rgba(28, 130, 166, 0.32);
+}
+
+
 
