@@ -328,6 +328,124 @@ function App() {
   }
 
   /* ========================================================================
+     FUNÇÕES PARA EDITAR / CRIAR DISCIPLINAS E TÓPICOS (EDITAL, FLOW E REGISTRO)
+     ======================================================================== */
+  function handleRenameDiscipline(planId, discId, newName) {
+    const clean = (newName || '').trim();
+    if (!clean) return;
+    updatePlanById(planId || activePlan.id, (plan) => ({
+      ...plan,
+      disciplinas: plan.disciplinas.map((d) => (d.id === discId ? { ...d, nome: clean } : d)),
+      sessions: (plan.sessions || []).map((s) =>
+        s.disciplinaId === discId ? { ...s, disciplinaNome: clean } : s
+      ),
+      errorNotebook: (plan.errorNotebook || []).map((e) =>
+        e.disciplinaId === discId ? { ...e, disciplinaNome: clean } : e
+      )
+    }));
+    showToast(`<strong>✓ Matéria atualizada para:</strong> <span class="highlight-mint">${clean}</span>`);
+  }
+
+  function handleAddDiscipline(planId, newName, initialTopicName = '1. Tópico Geral') {
+    const clean = (newName || '').trim();
+    if (!clean) return null;
+    const targetPlanId = planId || activePlan.id;
+    const newDiscId = 'disc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5);
+    const newTopId = `${newDiscId}_1`;
+    const palette = ['#1C82A6', '#5BC0DE', '#3B82F6', '#F59E0B', '#EC4899', '#0E4B60', '#10B981'];
+    const newDisc = {
+      id: newDiscId,
+      agrupamento: 'MATÉRIAS DO EDITAL',
+      nome: clean,
+      peso: 1,
+      cor: palette[Math.floor(Math.random() * palette.length)],
+      totalQuestoes: 0,
+      url: 'https://www.tecconcursos.com.br',
+      topicos: [
+        {
+          id: newTopId,
+          assunto: (initialTopicName || 'Tópico Geral').replace(/^\d+[\.\-\)]\s*/, ''),
+          questoesTexto: 'Personalizado',
+          questoes: 0,
+          nivel: 0,
+          concluido: false,
+          acertos: 0,
+          erros: 0,
+          ultimoEstudo: null
+        }
+      ]
+    };
+    updatePlanById(targetPlanId, (plan) => ({
+      ...plan,
+      disciplinas: [...plan.disciplinas, newDisc]
+    }));
+    showToast(`<strong>✓ Nova matéria salva:</strong> <span class="highlight-mint">${clean}</span>`);
+    return { discId: newDiscId, topicoId: newTopId };
+  }
+
+  function handleRenameTopic(planId, discId, topicoId, newAssunto) {
+    const clean = (newAssunto || '').trim();
+    if (!clean) return;
+    updatePlanById(planId || activePlan.id, (plan) => ({
+      ...plan,
+      disciplinas: plan.disciplinas.map((d) => {
+        if (d.id !== discId) return d;
+        return {
+          ...d,
+          topicos: d.topicos.map((t) => (t.id === topicoId ? { ...t, assunto: clean } : t))
+        };
+      }),
+      sessions: (plan.sessions || []).map((s) =>
+        s.disciplinaId === discId && s.topicoId === topicoId ? { ...s, topicoNome: clean } : s
+      ),
+      errorNotebook: (plan.errorNotebook || []).map((e) =>
+        e.disciplinaId === discId && e.topicoId === topicoId ? { ...e, tema: clean } : e
+      )
+    }));
+    showToast(`<strong>✓ Tópico atualizado para:</strong> <span class="highlight-mint">${clean}</span>`);
+  }
+
+  function handleAddTopic(planId, discId, newAssunto) {
+    const clean = (newAssunto || '').trim();
+    if (!clean) return null;
+    const targetPlanId = planId || activePlan.id;
+    const newTopId = `${discId}_top_${Date.now()}`;
+    updatePlanById(targetPlanId, (plan) => ({
+      ...plan,
+      disciplinas: plan.disciplinas.map((d) => {
+        if (d.id !== discId) return d;
+        return {
+          ...d,
+          topicos: [
+            ...d.topicos,
+            {
+              id: newTopId,
+              assunto: clean,
+              questoesTexto: 'Personalizado',
+              questoes: 0,
+              nivel: 0,
+              concluido: false,
+              acertos: 0,
+              erros: 0,
+              ultimoEstudo: null
+            }
+          ]
+        };
+      })
+    }));
+    showToast(`<strong>✓ Novo tópico salvo:</strong> <span class="highlight-mint">${clean}</span>`);
+    return newTopId;
+  }
+
+  function handleUpdateDisciplineWeight(planId, discId, newWeight) {
+    const w = Math.max(1, Number(newWeight) || 1);
+    updatePlanById(planId || activePlan.id, (plan) => ({
+      ...plan,
+      disciplinas: plan.disciplinas.map((d) => (d.id === discId ? { ...d, peso: w } : d))
+    }));
+  }
+
+  /* ========================================================================
      FUNÇÃO QUE EFETIVAMENTE REGISTRA A SESSÃO NO HISTÓRICO (DE SEG A SEG)
      Chamada após o modal "Registrar acertos?" no fim dos 25 min ou ao clicar em Finalizar
      ======================================================================== */
@@ -351,6 +469,7 @@ function App() {
 
     const planObj = appData.plans.find((p) => p.id === planId) || activePlan;
     const isAnkiReview = studyContext === 'anki';
+    const isMateriaReview = studyContext === 'revisao';
     const disc = isAnkiReview ? null : (planObj.disciplinas.find((d) => d.id === discId) || planObj.disciplinas[0]);
     const top = disc ? disc.topicos.find((t) => t.id === topicoId) || disc.topicos[0] : null;
     if (!disc && !isAnkiReview) return;
@@ -358,7 +477,13 @@ function App() {
     const today = toISODate(0);
     const startClock = formatTimeFromTimestamp(startedAtTs || Date.now() - sec * 1000);
     const endClock = formatTimeFromTimestamp(endedAtTs || Date.now());
-    const temaNome = isAnkiReview ? '' : (top ? top.assunto : disc.nome);
+    const temaNome = isAnkiReview
+      ? 'Revisão Anki'
+      : isMateriaReview && !topicoId
+      ? `🔄 Revisão Geral — ${disc.nome}`
+      : top
+      ? top.assunto
+      : disc.nome;
 
     updatePlanById(planObj.id, (plan) => {
       const newSession = {
@@ -369,7 +494,7 @@ function App() {
         time: endClock.slice(0, 5),
         editalId: plan.id,
         editalNome: plan.nome,
-        categoria: isAnkiReview ? 'Anki' : 'Flow',
+        categoria: isAnkiReview ? 'Anki' : isMateriaReview ? 'Revisão' : 'Flow',
         disciplinaId: disc?.id || '',
         disciplinaNome: isAnkiReview ? 'Anki' : disc.nome,
         topicoId: top ? top.id : '',
@@ -378,7 +503,7 @@ function App() {
         segundos: sec,
         acertos: ac,
         erros: er,
-        notaErro: notaErro || '',
+        notaErro: (notaErro || '').trim(),
         material: `${startClock} → ${endClock} (${formatExactSeconds(sec)})`
       };
 
@@ -386,10 +511,11 @@ function App() {
 
       const disciplinas = isAnkiReview ? plan.disciplinas : plan.disciplinas.map((d) => {
         if (d.id !== disc.id) return d;
+        const targetTopId = top ? top.id : d.topicos[0]?.id;
         return {
           ...d,
           topicos: d.topicos.map((t) => {
-            if (!top || t.id !== top.id) return t;
+            if (t.id !== targetTopId) return t;
             return {
               ...t,
               acertos: Number(t.acertos || 0) + ac,
@@ -401,7 +527,7 @@ function App() {
       });
 
       const errorNotebook = [...(plan.errorNotebook || [])];
-      if (er > 0) {
+      if (er > 0 || (notaErro && notaErro.trim())) {
         errorNotebook.push({
           id: 'err_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
           date: today,
@@ -413,8 +539,8 @@ function App() {
           tema: isAnkiReview ? 'Revisão livre (Anki)' : temaNome,
           erros: er,
           acertos: ac,
-          observacao: notaErro || `Sessão Flow (${startClock} → ${endClock})`,
-          origem: isAnkiReview ? 'Anki (Flow Timer)' : 'Flow Timer'
+          observacao: (notaErro || '').trim() || `Sessão Flow (${startClock} → ${endClock})`,
+          origem: isAnkiReview ? 'Anki (Flow Timer)' : isMateriaReview ? 'Revisão (Flow)' : 'Flow Timer'
         });
       }
 
@@ -427,7 +553,7 @@ function App() {
     });
 
     showToast(
-      `<strong>✓ Sessão registrada no Histórico!</strong> <span class="highlight-mint">${formatExactSeconds(sec)}</span> (${startClock} → ${endClock}) em <strong>${isAnkiReview ? 'Revisão Anki (tema livre)' : disc.nome}</strong>${ac + er > 0 ? ` • ✓ ${ac} / ✗ ${er}` : ''}.`
+      `<strong>✓ Sessão registrada no Histórico e Estatísticas!</strong> <span class="highlight-mint">${formatExactSeconds(sec)}</span> (${startClock} → ${endClock}) em <strong>${isAnkiReview ? 'Revisão Anki' : isMateriaReview ? `Revisão: ${disc.nome}` : disc.nome}</strong>${ac + er > 0 ? ` • ✓ ${ac} / ✗ ${er}` : ''}.`
     );
   }
 
@@ -1273,7 +1399,7 @@ function App() {
               <li className={`nav-item ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')}>
                 <span className="sidebar-curve-top" />
                 <span className="sidebar-curve-bottom" />
-                <div className="nav-item-left"><span>Painel Principal</span></div>
+                <div className="nav-item-left"><span>Painel</span></div>
               </li>
 
               <li className={`nav-item ${activeTab === 'flow' ? 'active' : ''}`} onClick={() => setActiveTab('flow')}>
@@ -1281,6 +1407,13 @@ function App() {
                 <span className="sidebar-curve-bottom" />
                 <div className="nav-item-left"><span>Flow & Histórico</span></div>
                 <span className="nav-badge">{(activePlan.sessions || []).length}</span>
+              </li>
+
+              <li className={`nav-item ${activeTab === 'estatisticas' ? 'active' : ''}`} onClick={() => setActiveTab('estatisticas')}>
+                <span className="sidebar-curve-top" />
+                <span className="sidebar-curve-bottom" />
+                <div className="nav-item-left"><span>Estatísticas</span></div>
+                <span className="nav-badge">{metrics.totalQuestoes}</span>
               </li>
 
               <li className={`nav-item ${activeTab === 'edital' ? 'active' : ''}`} onClick={() => setActiveTab('edital')}>
@@ -1324,6 +1457,8 @@ function App() {
               metrics={metrics}
               onUpdatePlan={updateActivePlan}
               onStartFlow={startFlowFor}
+              onRenameDiscipline={(discId, newName) => handleRenameDiscipline(activePlan.id, discId, newName)}
+              onAddDiscipline={(newName) => handleAddDiscipline(activePlan.id, newName)}
               onOpenReg={(discId, topicoId) =>
                 setRegModal({ open: true, planId: activePlan.id, discId, topicoId, minutos: 25 })
               }
@@ -1349,14 +1484,47 @@ function App() {
               onToggleBreak={handleToggleBreakMode}
               onSimpleReset={handleSimpleResetClock}
               onOpenPiP={openAlwaysOnTopMiniClock}
+              onRenameDiscipline={handleRenameDiscipline}
+              onAddDiscipline={handleAddDiscipline}
+              onRenameTopic={handleRenameTopic}
+              onAddTopic={handleAddTopic}
               onEditSessionQuestions={handleEditSessionQuestions}
               onDeleteSession={(sessionId) => {
-                updateActivePlan((p) => ({
-                  ...p,
-                  sessions: (p.sessions || []).filter((s) => s.id !== sessionId)
-                }));
+                const sess = (activePlan.sessions || []).find((s) => s.id === sessionId);
+                updateActivePlan((p) => {
+                  const sessions = (p.sessions || []).filter((s) => s.id !== sessionId);
+                  const disciplinas = !sess
+                    ? p.disciplinas
+                    : p.disciplinas.map((d) => {
+                        if (d.id !== sess.disciplinaId) return d;
+                        return {
+                          ...d,
+                          topicos: d.topicos.map((t) => {
+                            if (t.id !== sess.topicoId) return t;
+                            return {
+                              ...t,
+                              acertos: Math.max(0, Number(t.acertos || 0) - Number(sess.acertos || 0)),
+                              erros: Math.max(0, Number(t.erros || 0) - Number(sess.erros || 0))
+                            };
+                          })
+                        };
+                      });
+                  return { ...p, sessions, disciplinas };
+                });
                 showToast(`<strong>Sessão removida do histórico.</strong>`);
               }}
+            />
+          )}
+
+          {activeTab === 'estatisticas' && (
+            <EstatisticasView
+              plan={activePlan}
+              metrics={metrics}
+              onUpdateTopicInline={updateTopicStatsInline}
+              onRenameDiscipline={(discId, newName) => handleRenameDiscipline(activePlan.id, discId, newName)}
+              onRenameTopic={(discId, topicoId, newAssunto) => handleRenameTopic(activePlan.id, discId, topicoId, newAssunto)}
+              onUpdateWeight={(discId, w) => handleUpdateDisciplineWeight(activePlan.id, discId, w)}
+              onStartFlow={startFlowFor}
             />
           )}
 
@@ -1371,6 +1539,10 @@ function App() {
               expandedDiscs={expandedDiscs}
               setExpandedDiscs={setExpandedDiscs}
               onUpdateTopicInline={updateTopicStatsInline}
+              onRenameDiscipline={(discId, newName) => handleRenameDiscipline(activePlan.id, discId, newName)}
+              onAddDiscipline={(newName) => handleAddDiscipline(activePlan.id, newName)}
+              onRenameTopic={(discId, topicoId, newAssunto) => handleRenameTopic(activePlan.id, discId, topicoId, newAssunto)}
+              onAddTopic={(discId, newAssunto) => handleAddTopic(activePlan.id, discId, newAssunto)}
               onStartFlow={startFlowFor}
               onOpenNewPlan={() => setNewPlanModalOpen(true)}
             />
@@ -1388,7 +1560,7 @@ function App() {
         </main>
       </div>
 
-      {/* FLOATING FLOW WIDGET (Aparece no canto inferior direito quando você está em outra aba) */}
+      {/* FLOATING FLOW WIDGET (Aparece quando você está em outra aba e pode ser arrastado pela tela!) */}
       {activeTab !== 'flow' && (
         <FlowTimerFloatingWidget
           flow={flow}
@@ -1439,6 +1611,10 @@ function App() {
           initialDiscId={regModal.discId}
           initialTopicoId={regModal.topicoId}
           initialMinutos={regModal.minutos || 25}
+          onRenameDiscipline={handleRenameDiscipline}
+          onAddDiscipline={handleAddDiscipline}
+          onRenameTopic={handleRenameTopic}
+          onAddTopic={handleAddTopic}
           onClose={() => setRegModal({ ...regModal, open: false })}
           onSave={(targetPlanId, newSession, errorEntry) => {
             updatePlanById(targetPlanId, (p) => {
@@ -1466,7 +1642,7 @@ function App() {
             });
             setRegModal({ ...regModal, open: false });
             showToast(
-              `<strong>Muito bom!</strong> Seu estudo de <span class="highlight-mint">${formatMinutesToHm(newSession.minutos)}</span> em <strong>${newSession.disciplinaNome} (${newSession.topicoNome})</strong> foi salvo no Histórico.`
+              `<strong>Muito bom!</strong> Seu estudo de <span class="highlight-mint">${formatMinutesToHm(newSession.minutos)}</span> em <strong>${newSession.disciplinaNome} (${newSession.topicoNome})</strong> foi salvo no Histórico e Estatísticas.`
             );
           }}
         />
@@ -1493,10 +1669,9 @@ function App() {
 
 /* ==========================================================================
    EXACT FLOW TIMER COMPONENT (DARK MODE IMAGE 2 / LIGHT MODE IMAGE 1)
-   - Font size, colors, 4 circles (● ◐ ○ ○) and green outlined ▷ / || identical to screenshots!
-   - Pausar (||) pauses WITHOUT registering anything.
-   - Finalizar (✓ Finalizar) triggers the registration & asks "Registrar acertos?".
-   - Break (☕ Break) starts break anytime.
+   - Draggable across the screen via the top bar!
+   - No duplicate dark mode in settings menu (⋮).
+   - Removed "Concluído hoje..." text below buttons.
    ========================================================================== */
 function ExactFlowTimerCard({
   flow,
@@ -1513,13 +1688,57 @@ function ExactFlowTimerCard({
   const hasStartedCurrent = flow.running || flow.elapsedInCurrentRunSec > 0;
   const isDark = flow.timerDark;
 
+  const [dragPos, setDragPos] = useState(null);
+  const cardRef = useRef(null);
+
+  function handleMouseDownDrag(e) {
+    if (e.target.closest('button') || e.target.closest('.flow-dropdown-menu')) return;
+    e.preventDefault();
+    const rect = cardRef.current ? cardRef.current.getBoundingClientRect() : { left: 100, top: 100 };
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origLeft = dragPos ? dragPos.x : rect.left;
+    const origTop = dragPos ? dragPos.y : rect.top;
+
+    function onMove(ev) {
+      const nx = Math.max(8, Math.min(window.innerWidth - 320, origLeft + (ev.clientX - startX)));
+      const ny = Math.max(8, Math.min(window.innerHeight - 180, origTop + (ev.clientY - startY)));
+      setDragPos({ x: nx, y: ny });
+    }
+
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  const baseStyle = compact ? { maxWidth: 325, minHeight: 245, padding: '14px 18px 18px' } : {};
+  const floatingDragStyle = dragPos
+    ? {
+        position: 'fixed',
+        left: dragPos.x,
+        top: dragPos.y,
+        zIndex: 995,
+        margin: 0,
+        width: compact ? 325 : 390
+      }
+    : {};
+
   return (
     <div
+      ref={cardRef}
       className={`flow-exact-window ${isDark ? 'is-dark' : 'is-light'}`}
-      style={compact ? { maxWidth: 325, minHeight: 245, padding: '14px 18px 18px' } : {}}
+      style={{ ...baseStyle, ...floatingDragStyle }}
     >
-      {/* TOP BAR: MAC DOTS LEFT + RESET ↺ & MENU ⋮ RIGHT */}
-      <div className="flow-exact-topbar">
+      {/* TOP BAR (DRAGGABLE HANDLE): MAC DOTS LEFT + DRAG PILL + RESET ↺ & MENU ⋮ RIGHT */}
+      <div
+        className="flow-exact-topbar flow-draggable-handle"
+        onMouseDown={handleMouseDownDrag}
+        title="Clique e arraste para mover o cronômetro pela tela"
+      >
         <div className="flow-mac-dots">
           <button
             className="flow-mac-dot red"
@@ -1528,18 +1747,26 @@ function ExactFlowTimerCard({
           />
           <button
             className="flow-mac-dot gray"
-            onClick={() => setFlow((p) => ({ ...p, timerDark: !p.timerDark }))}
-            title="Alternar Modo Dark / Light do Timer"
-          />
-          <button
-            className="flow-mac-dot gray"
             onClick={onOpenPiP}
             title="Destacar Mini-Tela Flutuante fora do navegador"
           />
+          <span className="flow-drag-pill" title="Arraste o cronômetro para qualquer lugar da tela">
+            ⠿ Arrastar
+          </span>
+          {dragPos && (
+            <button
+              type="button"
+              className="inline-edit-chip-btn"
+              onClick={() => setDragPos(null)}
+              title="Voltar o cronômetro para a posição original"
+            >
+              📍 Fixar
+            </button>
+          )}
         </div>
 
         <div className="flow-exact-top-icons">
-          {/* Dark/Light Quick Badge */}
+          {/* Single Dark/Light Toggle Button (Not duplicated in menu) */}
           <button
             className="flow-exact-icon-btn"
             onClick={() => setFlow((p) => ({ ...p, timerDark: !p.timerDark }))}
@@ -1549,7 +1776,7 @@ function ExactFlowTimerCard({
             {isDark ? '🌙' : '☀️'}
           </button>
 
-          {/* Exact Reset Circular Arrow SVG from Images 1 & 2 */}
+          {/* Exact Reset Circular Arrow SVG */}
           <button
             className="flow-exact-icon-btn"
             onClick={onSimpleReset}
@@ -1561,7 +1788,7 @@ function ExactFlowTimerCard({
             </svg>
           </button>
 
-          {/* Exact 3 Vertical Hollow Dots SVG from Images 1 & 2 */}
+          {/* Exact 3 Vertical Hollow Dots SVG */}
           <button
             className="flow-exact-icon-btn"
             onClick={() => setFlow((p) => ({ ...p, menuOpen: !p.menuOpen }))}
@@ -1576,9 +1803,15 @@ function ExactFlowTimerCard({
         </div>
       </div>
 
-      {/* CENTER TITLE: "Flow" or "Break" */}
+      {/* CENTER TITLE: "Flow", "Revisão", "Anki" or "Break" */}
       <div className="flow-exact-title" style={compact ? { fontSize: 20 } : {}}>
-        {flow.mode === 'break' ? 'Break' : flow.studyContext === 'anki' ? 'Anki' : 'Flow'}
+        {flow.mode === 'break'
+          ? 'Break'
+          : flow.studyContext === 'anki'
+          ? 'Anki'
+          : flow.studyContext === 'revisao'
+          ? 'Revisão'
+          : 'Flow'}
       </div>
 
       {/* HUGE CRISP DIGITS: "13:12" / "25:00" */}
@@ -1605,10 +1838,7 @@ function ExactFlowTimerCard({
         })}
       </div>
 
-      {/* CONTROLS ROW:
-          - Green Outlined Play Triangle (▷) / Green Outlined Pause Double-Bars (||)
-          - Next to it: "✓ Finalizar" (when registration happens & asks about acertos!)
-          - Next to it: "☕ Break" */}
+      {/* CONTROLS ROW */}
       <div className="flow-exact-controls">
         <button
           className="flow-outline-play-btn"
@@ -1620,13 +1850,11 @@ function ExactFlowTimerCard({
           }
         >
           {flow.running ? (
-            /* Exact Petrol Blue Outlined Double Pause Bars || */
             <svg width="34" height="36" viewBox="0 0 34 36" fill="none">
               <rect x="7" y="4" width="6.5" height="28" rx="1.5" stroke="#1C82A6" strokeWidth="2.4" />
               <rect x="20.5" y="4" width="6.5" height="28" rx="1.5" stroke="#1C82A6" strokeWidth="2.4" />
             </svg>
           ) : (
-            /* Exact Petrol Blue Outlined Play Triangle ▷ */
             <svg width="34" height="36" viewBox="0 0 34 36" fill="none">
               <polygon
                 points="8,4 29,18 8,32"
@@ -1639,7 +1867,6 @@ function ExactFlowTimerCard({
           )}
         </button>
 
-        {/* Botão PAUSAR explícito ao lado quando estiver rodando, ou INICIAR quando pausado */}
         {flow.running && (
           <button
             className="flow-side-action-btn"
@@ -1650,16 +1877,14 @@ function ExactFlowTimerCard({
           </button>
         )}
 
-        {/* Botão FINALIZAR: É aqui que o registro acontece e pergunta "Registrar acertos?" */}
         <button
           className="flow-side-action-btn finish"
           onClick={onFinalizeSession}
-          title="Finaliza a sessão atual, pergunta os acertos/erros e registra no Histórico!"
+          title="Finaliza a sessão atual, pergunta os acertos/erros e registra no Histórico e Estatísticas!"
         >
           ✓ Finalizar
         </button>
 
-        {/* Botão BREAK: Mantido para iniciar o descanso a qualquer momento */}
         <button
           className="flow-side-action-btn"
           onClick={onToggleBreak}
@@ -1669,31 +1894,8 @@ function ExactFlowTimerCard({
         </button>
       </div>
 
-      {/* RESUMO DIÁRIO (RESETADO APÓS 24H / NO DIA SEGUINTE) */}
-      {!compact && (
-        <div
-          style={{
-            marginTop: 14,
-            fontSize: 11.5,
-            opacity: 0.72,
-            textAlign: 'center'
-          }}
-        >
-          Concluído hoje ({flow.lastActiveDate.split('-').reverse().join('/')}):{' '}
-          <strong>{formatMinutesToHm(todayStats?.todayMin || 0)}</strong> ({flow.completedCyclesToday}/{flow.totalCycles} bolinhas do ciclo atual • reseta a cada 24h)
-        </div>
-      )}
-
-      {/* DROPDOWN MENU (⋮) */}
+      {/* DROPDOWN MENU (⋮) — Sem duplicação do Modo Dark */}
       <div className={`flow-dropdown-menu ${flow.menuOpen ? 'open' : ''}`}>
-        <div
-          className="flow-menu-item"
-          onClick={() => setFlow((p) => ({ ...p, timerDark: !p.timerDark, menuOpen: false }))}
-        >
-          <span>Modo do Timer</span>
-          <strong>{isDark ? '🌙 Dark' : '☀️ Light'}</strong>
-        </div>
-
         <div
           className="flow-menu-item"
           onClick={() => {
@@ -1704,6 +1906,19 @@ function ExactFlowTimerCard({
           <span>📌 Fixar Fora do Navegador</span>
           <span>⧉</span>
         </div>
+
+        {dragPos && (
+          <div
+            className="flow-menu-item"
+            onClick={() => {
+              setDragPos(null);
+              setFlow((p) => ({ ...p, menuOpen: false }));
+            }}
+          >
+            <span>📍 Centralizar Posição</span>
+            <span>↺</span>
+          </div>
+        )}
 
         <div className="flow-menu-divider" />
 
@@ -1815,13 +2030,13 @@ function FinishSessionQuestionsModal({
 
         <div
           style={{
-            background: '#1E222B',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'var(--bg-card-inner)',
+            border: '1px solid var(--border-card)',
             borderRadius: 10,
             padding: '10px 14px',
             marginBottom: 16,
             fontSize: 13,
-            color: '#E2E8F0'
+            color: 'var(--text-primary)'
           }}
         >
           <div>
@@ -1831,7 +2046,7 @@ function FinishSessionQuestionsModal({
             </span>
           </div>
           <div style={{ marginTop: 4 }}>
-            📚 <strong>{promptData.studyContext === 'anki' ? 'Modo de revisão:' : 'Disciplina:'}</strong>{' '}
+            📚 <strong>{promptData.studyContext === 'anki' ? 'Modo de revisão:' : promptData.studyContext === 'revisao' ? 'Revisão da Matéria:' : 'Disciplina:'}</strong>{' '}
             {promptData.studyContext === 'anki' ? 'Anki · tema livre' : disc?.nome}
           </div>
           {promptData.studyContext !== 'anki' && (
@@ -1841,18 +2056,18 @@ function FinishSessionQuestionsModal({
           )}
         </div>
 
-        <div style={{ fontSize: 12, fontWeight: 800, color: '#94A3B8', marginBottom: 10 }}>
-          PERSONALIZE A QUANTIDADE DE QUESTÕES FEITAS NESTA SESSÃO:
+        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-secondary)', marginBottom: 10 }}>
+          PERSONALIZE A QUANTIDADE DE QUESTÕES FEITAS NESTA SESSÃO (VAI PARA ESTATÍSTICAS):
         </div>
 
         <div className="registro-form-grid-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <div className="reg-field">
-            <label style={{ color: '#5BC0DE' }}>✓ QUESTÕES CERTAS</label>
+            <label style={{ color: '#05B265' }}>✓ QUESTÕES CERTAS</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
               <button
                 type="button"
                 onClick={() => setPromptData((p) => ({ ...p, acertos: Math.max(0, p.acertos - 1) }))}
-                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.14)', background: '#1A1E26', color: '#F1F5F9', fontWeight: 800, cursor: 'pointer' }}
+                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border-card)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontWeight: 800, cursor: 'pointer' }}
               >
                 -
               </button>
@@ -1861,12 +2076,12 @@ function FinishSessionQuestionsModal({
                 min="0"
                 value={promptData.acertos}
                 onChange={(e) => setPromptData((p) => ({ ...p, acertos: Math.max(0, Number(e.target.value) || 0) }))}
-                style={{ textAlign: 'center', fontSize: 18, fontWeight: 800, color: '#5BC0DE' }}
+                style={{ textAlign: 'center', fontSize: 18, fontWeight: 800, color: '#05B265' }}
               />
               <button
                 type="button"
                 onClick={() => setPromptData((p) => ({ ...p, acertos: p.acertos + 1 }))}
-                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #1C82A6', background: 'rgba(28,130,166,0.2)', color: '#5BC0DE', fontWeight: 800, cursor: 'pointer' }}
+                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #05B265', background: 'rgba(5,178,101,0.16)', color: '#05B265', fontWeight: 800, cursor: 'pointer' }}
               >
                 +
               </button>
@@ -1874,12 +2089,12 @@ function FinishSessionQuestionsModal({
           </div>
 
           <div className="reg-field">
-            <label style={{ color: '#F26B5B' }}>✗ QUESTÕES ERRADAS</label>
+            <label style={{ color: '#F23022' }}>✗ QUESTÕES ERRADAS</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
               <button
                 type="button"
                 onClick={() => setPromptData((p) => ({ ...p, erros: Math.max(0, p.erros - 1) }))}
-                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.14)', background: '#1A1E26', color: '#F1F5F9', fontWeight: 800, cursor: 'pointer' }}
+                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border-card)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontWeight: 800, cursor: 'pointer' }}
               >
                 -
               </button>
@@ -1888,12 +2103,12 @@ function FinishSessionQuestionsModal({
                 min="0"
                 value={promptData.erros}
                 onChange={(e) => setPromptData((p) => ({ ...p, erros: Math.max(0, Number(e.target.value) || 0) }))}
-                style={{ textAlign: 'center', fontSize: 18, fontWeight: 800, color: '#F26B5B' }}
+                style={{ textAlign: 'center', fontSize: 18, fontWeight: 800, color: '#F23022' }}
               />
               <button
                 type="button"
                 onClick={() => setPromptData((p) => ({ ...p, erros: p.erros + 1 }))}
-                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #F26B5B', background: 'rgba(242,107,91,0.2)', color: '#F26B5B', fontWeight: 800, cursor: 'pointer' }}
+                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #F23022', background: 'rgba(242,48,34,0.16)', color: '#F23022', fontWeight: 800, cursor: 'pointer' }}
               >
                 +
               </button>
@@ -1901,26 +2116,24 @@ function FinishSessionQuestionsModal({
           </div>
         </div>
 
-        {promptData.erros > 0 && (
-          <div className="reg-field" style={{ marginBottom: 14 }}>
-            <label>ANOTAÇÃO PARA O CADERNO DE ERROS (OPCIONAL)</label>
-            <input
-              type="text"
-              placeholder={`O que você errou em ${top?.assunto || 'neste tema'}?`}
-              value={promptData.notaErro}
-              onChange={(e) => setPromptData((p) => ({ ...p, notaErro: e.target.value }))}
-            />
-          </div>
-        )}
+        <div className="reg-field" style={{ marginBottom: 14 }}>
+          <label>📝 NOTAS / ONDE FALO DOS MEUS ERROS (PARA REVISAR DEPOIS)</label>
+          <input
+            type="text"
+            placeholder={`Anote seus erros ou pontos de revisão em ${top?.assunto || 'neste tema'}...`}
+            value={promptData.notaErro}
+            onChange={(e) => setPromptData((p) => ({ ...p, notaErro: e.target.value }))}
+          />
+        </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={() => onConfirmSave(false)}
             style={{
-              border: '1px solid rgba(255,255,255,0.15)',
-              background: '#1E222B',
-              color: '#E2E8F0',
+              border: '1px solid var(--border-card)',
+              background: 'var(--bg-card-inner)',
+              color: 'var(--text-primary)',
               padding: '9px 14px',
               borderRadius: 10,
               fontWeight: 700,
@@ -1945,8 +2158,8 @@ function FinishSessionQuestionsModal({
 }
 
 /* ==========================================================================
-   ABA FLOW & HISTÓRICO (COM O TIMER DARK IDÊNTICO À IMAGEM 2 + GRÁFICO D|W|M|Y
-   DA IMAGEM 3 + SESSÕES DE SEG A SEG COM TEMA E QUESTÕES)
+   ABA FLOW & HISTÓRICO (COM MODO REVISÃO PARA A MATÉRIA, DISCIPLINAS E TÓPICOS
+   EDITÁVEIS E CRONÔMETRO ARRASTÁVEL PELA TELA)
    ========================================================================== */
 function FlowAndHistoryView({
   plans,
@@ -1961,16 +2174,25 @@ function FlowAndHistoryView({
   onToggleBreak,
   onSimpleReset,
   onOpenPiP,
+  onRenameDiscipline,
+  onAddDiscipline,
+  onRenameTopic,
+  onAddTopic,
   onEditSessionQuestions,
   onDeleteSession
 }) {
   const [periodTab, setPeriodTab] = useState('W'); // 'D' | 'W' | 'M' | 'Y'
   const [weekOffset, setWeekOffset] = useState(0);
 
+  // Estados para edição/digitação inline da Disciplina e do Tópico no Flow
+  const [discEditMode, setDiscEditMode] = useState(null); // null | 'rename' | 'new'
+  const [discInputText, setDiscInputText] = useState('');
+  const [topicEditMode, setTopicEditMode] = useState(null); // null | 'rename' | 'new'
+  const [topicInputText, setTopicInputText] = useState('');
+
   const selectedPlan = plans.find((p) => p.id === flow.planId) || activePlan;
   const weekDays = useMemo(() => getWeekDaysMonToSun(weekOffset), [weekOffset]);
 
-  // Calcula quantos Flows (ou minutos) foram feitos em cada dia da semana selecionada (M T W T F S S)
   const weeklyBarData = useMemo(() => {
     const sessions = activePlan.sessions || [];
     const countsByDay = weekDays.map((wd) => {
@@ -1998,13 +2220,43 @@ function FlowAndHistoryView({
     };
   }, [activePlan.sessions, weekDays]);
 
+  function handleSaveDiscInline() {
+    const clean = discInputText.trim();
+    if (!clean) return;
+    if (discEditMode === 'rename' && currentDisc) {
+      onRenameDiscipline(selectedPlan.id, currentDisc.id, clean);
+    } else if (discEditMode === 'new') {
+      const res = onAddDiscipline(selectedPlan.id, clean);
+      if (res) {
+        setFlow((p) => ({ ...p, disciplinaId: res.discId, topicoId: res.topicoId }));
+      }
+    }
+    setDiscEditMode(null);
+    setDiscInputText('');
+  }
+
+  function handleSaveTopicInline() {
+    const clean = topicInputText.trim();
+    if (!clean || !currentDisc) return;
+    if (topicEditMode === 'rename' && currentTopic) {
+      onRenameTopic(selectedPlan.id, currentDisc.id, currentTopic.id, clean);
+    } else if (topicEditMode === 'new') {
+      const newTopId = onAddTopic(selectedPlan.id, currentDisc.id, clean);
+      if (newTopId) {
+        setFlow((p) => ({ ...p, topicoId: newTopId }));
+      }
+    }
+    setTopicEditMode(null);
+    setTopicInputText('');
+  }
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title">⏱️ Flow & Histórico das Sessões</h1>
           <p className="page-subtitle">
-            Ao apertar <strong>▷ Iniciar</strong>, você pode <strong>⏸ Pausar</strong> sem registrar nada. Quando apertar <strong>✓ Finalizar</strong> (ou concluir os 25 min), ele pergunta os acertos e registra no Histórico!
+            Arraste o cronômetro pelo topo (<strong>⠿ Arrastar</strong>) para posicioná-lo onde quiser na tela. Ao clicar em <strong>✓ Finalizar</strong>, suas questões e assuntos vão direto para <strong>Estatísticas</strong>!
           </p>
         </div>
         <button className="btn-outline-mint" onClick={onOpenPiP}>
@@ -2013,26 +2265,33 @@ function FlowAndHistoryView({
       </div>
 
       <div className="dashboard-grid">
-        {/* COLUNA ESQUERDA: SELETOR TRT 1 + EXACT DARK FLOW TIMER */}
+        {/* COLUNA ESQUERDA: SELETOR + EXACT FLOW TIMER */}
         <div className="estudei-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
-          {/* SELETOR DE EDITAL -> DISCIPLINA -> TEMA */}
+          {/* SELETOR: O que vamos estudar hoje ? */}
           <div className="estudei-white-box" style={{ width: '100%' }}>
-            <div className="flow-study-heading">O que vamos estudar hoje?</div>
-            <div className="flow-study-choice" role="group" aria-label="Escolha o modo de estudo">
+            <div className="flow-study-heading">O que vamos estudar hoje ?</div>
+            <div
+              className="flow-study-choice"
+              style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}
+              role="group"
+              aria-label="Escolha o modo de estudo"
+            >
               <button
                 type="button"
-                className={`flow-study-choice-button ${flow.studyContext !== 'anki' ? 'selected' : ''}`}
-                aria-pressed={flow.studyContext !== 'anki'}
+                className={`flow-study-choice-button ${(!flow.studyContext || flow.studyContext === 'topic') ? 'selected' : ''}`}
                 disabled={flow.running || flow.elapsedInCurrentRunSec > 0}
                 onClick={() => setFlow((p) => ({ ...p, studyContext: 'topic' }))}
-              >Edital</button>
+              >
+                Edital
+              </button>
               <button
                 type="button"
                 className={`flow-study-choice-button ${flow.studyContext === 'anki' ? 'selected' : ''}`}
-                aria-pressed={flow.studyContext === 'anki'}
                 disabled={flow.running || flow.elapsedInCurrentRunSec > 0}
                 onClick={() => setFlow((p) => ({ ...p, studyContext: 'anki' }))}
-              >Anki</button>
+              >
+                Anki
+              </button>
             </div>
 
             {flow.studyContext === 'anki' ? (
@@ -2056,30 +2315,135 @@ function FlowAndHistoryView({
                 </div>
 
                 <div className="registro-form-grid-2" style={{ marginBottom: 0 }}>
+                  {/* 2º DISCIPLINA (EDITÁVEL) */}
                   <div className="reg-field">
-                    <label>2º DISCIPLINA</label>
-                    <select
-                      value={currentDisc?.id || ''}
-                      onChange={(e) => {
-                        const newDisc = selectedPlan.disciplinas.find((d) => d.id === e.target.value);
-                        setFlow((p) => ({ ...p, disciplinaId: e.target.value, topicoId: newDisc?.topicos[0]?.id || '' }));
-                      }}
-                    >
-                      {selectedPlan.disciplinas.map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
-                    </select>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <label style={{ marginBottom: 0 }}>2º DISCIPLINA / MATÉRIA</label>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button
+                          type="button"
+                          className="inline-edit-chip-btn"
+                          onClick={() => {
+                            if (discEditMode === 'rename') {
+                              setDiscEditMode(null);
+                            } else {
+                              setDiscEditMode('rename');
+                              setDiscInputText(currentDisc?.nome || '');
+                            }
+                          }}
+                          title="Editar nome desta disciplina"
+                        >
+                          ✎ Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-edit-chip-btn"
+                          onClick={() => {
+                            if (discEditMode === 'new') {
+                              setDiscEditMode(null);
+                            } else {
+                              setDiscEditMode('new');
+                              setDiscInputText('');
+                            }
+                          }}
+                          title="Digitar e salvar nova disciplina"
+                        >
+                          + Nova
+                        </button>
+                      </div>
+                    </div>
+
+                    {discEditMode ? (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          type="text"
+                          value={discInputText}
+                          onChange={(e) => setDiscInputText(e.target.value)}
+                          placeholder={discEditMode === 'new' ? 'Digite a nova matéria...' : 'Renomear matéria...'}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSaveDiscInline()}
+                          autoFocus
+                        />
+                        <button type="button" className="btn-primary-mint" style={{ padding: '4px 10px', fontSize: 11.5 }} onClick={handleSaveDiscInline}>
+                          ✓ Salvar
+                        </button>
+                      </div>
+                    ) : (
+                      <select
+                        value={currentDisc?.id || ''}
+                        onChange={(e) => {
+                          const newDisc = selectedPlan.disciplinas.find((d) => d.id === e.target.value);
+                          setFlow((p) => ({ ...p, disciplinaId: e.target.value, topicoId: newDisc?.topicos[0]?.id || '' }));
+                        }}
+                      >
+                        {selectedPlan.disciplinas.map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
+                      </select>
+                    )}
                   </div>
+
+                  {/* 3º TEMA / TÓPICO (EDITÁVEL) */}
                   <div className="reg-field">
-                    <label>3º TEMA / TÓPICO</label>
-                    <select value={currentTopic?.id || ''} onChange={(e) => setFlow((p) => ({ ...p, topicoId: e.target.value }))}>
-                      {(currentDisc?.topicos || []).map((t, idx) => <option key={t.id} value={t.id}>{idx + 1}. {t.assunto}</option>)}
-                    </select>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <label style={{ marginBottom: 0 }}>3º TEMA / TÓPICO</label>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button
+                          type="button"
+                          className="inline-edit-chip-btn"
+                          onClick={() => {
+                            if (topicEditMode === 'rename') {
+                              setTopicEditMode(null);
+                            } else {
+                              setTopicEditMode('rename');
+                              setTopicInputText(currentTopic?.assunto || '');
+                            }
+                          }}
+                          title="Editar nome deste tópico"
+                        >
+                          ✎ Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-edit-chip-btn"
+                          onClick={() => {
+                            if (topicEditMode === 'new') {
+                              setTopicEditMode(null);
+                            } else {
+                              setTopicEditMode('new');
+                              setTopicInputText('');
+                            }
+                          }}
+                          title="Digitar e salvar novo tópico"
+                        >
+                          + Novo
+                        </button>
+                      </div>
+                    </div>
+
+                    {topicEditMode ? (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          type="text"
+                          value={topicInputText}
+                          onChange={(e) => setTopicInputText(e.target.value)}
+                          placeholder={topicEditMode === 'new' ? 'Digite o novo tópico...' : 'Renomear tópico...'}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSaveTopicInline()}
+                          autoFocus
+                        />
+                        <button type="button" className="btn-primary-mint" style={{ padding: '4px 10px', fontSize: 11.5 }} onClick={handleSaveTopicInline}>
+                          ✓ Salvar
+                        </button>
+                      </div>
+                    ) : (
+                      <select value={currentTopic?.id || ''} onChange={(e) => setFlow((p) => ({ ...p, topicoId: e.target.value }))}>
+                        {(currentDisc?.topicos || []).map((t, idx) => <option key={t.id} value={t.id}>{idx + 1}. {t.assunto}</option>)}
+                      </select>
+                    )}
                   </div>
                 </div>
               </>
             )}
           </div>
 
-          {/* CRONÔMETRO FLOW IDÊNTICO À IMAGEM 2 (DARK) / IMAGEM 1 (LIGHT) */}
+          {/* CRONÔMETRO FLOW (ARRASTÁVEL PELA TELA) */}
           <ExactFlowTimerCard
             flow={flow}
             setFlow={setFlow}
@@ -2092,9 +2456,8 @@ function FlowAndHistoryView({
           />
         </div>
 
-        {/* COLUNA DIREITA: GRÁFICO DE SESSÕES DO FLOW (IMAGEM 3: D | W | M | Y + M T W T F S S) + LISTA DE SEG A SEG */}
+        {/* COLUNA DIREITA: GRÁFICO DE SESSÕES DO FLOW (D | W | M | Y + M T W T F S S) + LISTA DE SEG A SEG */}
         <div className="estudei-card" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {/* REPLICA EXATA DA IMAGEM 3: D | W | M | Y + "X Flows" + PILL BARS */}
           <div className="flow-stats-card">
             <div className="flow-stats-tabs">
               {['D', 'W', 'M', 'Y'].map((t) => (
@@ -2124,9 +2487,8 @@ function FlowAndHistoryView({
               </button>
             </div>
 
-            {/* 7 BARRAS VERTICAIS ARREDONDADAS (M T W T F S S) */}
             <div className="flow-Resize-bars-grid">
-              {weeklyBarData.days.map((d, idx) => (
+              {weeklyBarData.days.map((d) => (
                 <div
                   key={d.iso}
                   className="flow-pill-col"
@@ -2191,6 +2553,20 @@ function FlowAndHistoryView({
                           >
                             ⏱️ {formatExactSeconds(s.segundos || s.minutos * 60)}
                           </span>
+                          {s.categoria === 'Revisão' && (
+                            <span
+                              style={{
+                                background: 'rgba(245, 176, 65, 0.22)',
+                                color: '#F5B041',
+                                padding: '2px 8px',
+                                borderRadius: 99,
+                                fontSize: 11,
+                                fontWeight: 800
+                              }}
+                            >
+                              🔄 Revisão
+                            </span>
+                          )}
                           <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 700 }}>
                             {s.startTime && s.endTime ? `${s.startTime} → ${s.endTime}` : s.time || ''} •{' '}
                             {s.date ? s.date.split('-').reverse().join('/') : ''}
@@ -2204,7 +2580,7 @@ function FlowAndHistoryView({
                         </div>
                         {s.notaErro && (
                           <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 4, whiteSpace: 'pre-wrap' }}>
-                            Nota do erro: {s.notaErro}
+                            📝 Nota: {s.notaErro}
                           </div>
                         )}
                       </div>
@@ -2213,8 +2589,8 @@ function FlowAndHistoryView({
                         <button
                           onClick={() => onEditSessionQuestions(s.id)}
                           style={{
-                            border: '1px solid rgba(255, 255, 255, 0.12)',
-                            background: '#272B36',
+                            border: '1px solid var(--border-card)',
+                            background: 'var(--bg-surface)',
                             borderRadius: 10,
                             padding: '5px 10px',
                             cursor: 'pointer',
@@ -2226,8 +2602,8 @@ function FlowAndHistoryView({
                           }}
                           title="Clique para personalizar/editar a quantidade de questões certas e erradas desta sessão"
                         >
-                          <span style={{ color: '#5BC0DE' }}>✓ {s.acertos || 0}</span>
-                          <span style={{ color: '#F26B5B' }}>✗ {s.erros || 0}</span>
+                          <span style={{ color: '#05B265' }}>✓ {s.acertos || 0}</span>
+                          <span style={{ color: '#F23022' }}>✗ {s.erros || 0}</span>
                           <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>✎</span>
                         </button>
 
@@ -2259,7 +2635,62 @@ function FlowAndHistoryView({
 }
 
 /* ==========================================================================
-   FLOATING WIDGET QUANDO ESTÁ EM OUTRA ABA (USA O MESMO DESIGN DARK/LIGHT)
+   HOOK PARA ARRASTAR O CRONÔMETRO PELA TELA (DRAGGABLE)
+   ========================================================================== */
+function useDraggableCard(storageKey) {
+  const [offset, setOffset] = useState(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return { x: 0, y: 0 };
+  });
+
+  function onMouseDown(e) {
+    if (e.target.closest('button') || e.target.closest('.flow-dropdown-menu')) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origX = offset.x;
+    const origY = offset.y;
+
+    function onMove(ev) {
+      const next = {
+        x: origX + (ev.clientX - startX),
+        y: origY + (ev.clientY - startY)
+      };
+      setOffset(next);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch (err) {}
+    }
+
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  function resetPosition() {
+    setOffset({ x: 0, y: 0 });
+    try {
+      localStorage.removeItem(storageKey);
+    } catch (e) {}
+  }
+
+  return { offset, onMouseDown, resetPosition };
+}
+
+/* ==========================================================================
+   FLOATING WIDGET QUANDO ESTÁ EM OUTRA ABA (ARRASTÁVEL PELA TELA + MODO DARK/LIGHT)
    ========================================================================== */
 function FlowTimerFloatingWidget({
   flow,
@@ -2273,19 +2704,26 @@ function FlowTimerFloatingWidget({
   onGoToFlowTab
 }) {
   const clockStr = formatSecondsToClock(flow.secondsLeft);
+  const minDrag = useDraggableCard('estudei_flow_min_pos_v1');
 
   if (flow.minimized) {
     return (
-      <div className="flow-widget-wrapper is-minimized">
+      <div
+        className="flow-widget-wrapper is-minimized"
+        style={{
+          transform: `translate3d(${minDrag.offset.x}px, ${minDrag.offset.y}px, 0)`
+        }}
+      >
         <div
-          className="flow-minimized-fab"
+          className="flow-minimized-fab flow-draggable-handle"
           style={{
             background: flow.timerDark ? '#202124' : '#FFFFFF',
             color: flow.timerDark ? '#FFFFFF' : '#09090B',
             borderColor: '#35363A'
           }}
+          onMouseDown={minDrag.onMouseDown}
           onClick={() => setFlow((p) => ({ ...p, minimized: false }))}
-          title="Clique para abrir o Flow Timer"
+          title="Arraste para mover ou clique para abrir o Flow Timer"
         >
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: flow.running ? '#1C82A6' : '#71717A' }} />
           <strong>{clockStr}</strong>
@@ -2314,8 +2752,549 @@ function FlowTimerFloatingWidget({
 }
 
 /* ==========================================================================
-   HOME VIEW (SEM MINHAS CONQUISTAS, SEM PROGRESSO NO EDITAL, SEM FALTAM 90 DIAS,
-   E SEM OS 2 BOTÕES ACIMA DA PÁGINA PRINCIPAL)
+   DIAGRAMA CIRCULAR ANIMADO (FRAMER MOTION SPRING STYLE) — VERDE ACERTOS / VERMELHO ERROS
+   ========================================================================== */
+function FramerMotionDonutChart({ acertos = 0, erros = 0, size = 166, strokeWidth = 28 }) {
+  const total = Math.max(0, Number(acertos || 0)) + Math.max(0, Number(erros || 0));
+  const exactPct = total > 0 ? (Number(acertos || 0) * 100) / total : 0;
+  const formattedPct = exactPct.toFixed(2) + '%';
+
+  const [animatedPct, setAnimatedPct] = useState(0);
+  const [hasData, setHasData] = useState(false);
+
+  useEffect(() => {
+    setAnimatedPct(0);
+    setHasData(false);
+    const id = requestAnimationFrame(() => {
+      const id2 = requestAnimationFrame(() => {
+        setHasData(total > 0);
+        setAnimatedPct(exactPct);
+      });
+      return () => cancelAnimationFrame(id2);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [acertos, erros, total, exactPct]);
+
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const greenLength = hasData ? (animatedPct / 100) * circumference : 0;
+  const redLength = hasData ? Math.max(0, circumference - greenLength) : 0;
+
+  return (
+    <div className="fm-donut-container" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {/* Trilha neutra de fundo quando 0 questões */}
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="transparent"
+          stroke="rgba(148, 163, 184, 0.22)"
+          strokeWidth={strokeWidth}
+        />
+
+        {/* Arco Vermelho (Erros) */}
+        {total > 0 && erros > 0 && (
+          <circle
+            className="fm-donut-arc"
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="transparent"
+            stroke="#F22819"
+            strokeWidth={strokeWidth}
+            strokeDasharray={`${redLength} ${circumference}`}
+            strokeDashoffset={-greenLength}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        )}
+
+        {/* Arco Verde (Acertos) */}
+        {total > 0 && acertos > 0 && (
+          <circle
+            className="fm-donut-arc"
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="transparent"
+            stroke="#00A859"
+            strokeWidth={strokeWidth}
+            strokeDasharray={`${greenLength} ${circumference}`}
+            strokeDashoffset={0}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        )}
+
+        {/* Linhas brancas sutis separadoras entre verde e vermelho igual ao print */}
+        {total > 0 && acertos > 0 && erros > 0 && (
+          <g>
+            <line
+              x1={size / 2}
+              y1={0}
+              x2={size / 2}
+              y2={strokeWidth + 2}
+              stroke="#FFFFFF"
+              strokeWidth="2"
+            />
+            <line
+              x1={size / 2}
+              y1={0}
+              x2={size / 2}
+              y2={strokeWidth + 2}
+              stroke="#FFFFFF"
+              strokeWidth="2"
+              transform={`rotate(${(animatedPct / 100) * 360} ${size / 2} ${size / 2})`}
+              style={{ transition: 'transform 1.15s cubic-bezier(0.16, 1, 0.3, 1)' }}
+            />
+          </g>
+        )}
+      </svg>
+
+      <div className="fm-donut-center-label">
+        <div className="fm-donut-pct" style={{ fontSize: size >= 155 ? 19 : 15 }}>
+          {formattedPct}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   PAINEL DE ESTATÍSTICAS (DESEMPENHO GERAL COM DIAGRAMA CIRCULAR FRAMER MOTION +
+   DESEMPENHO POR MATÉRIA E ASSUNTO COM GRÁFICO BICOLOR SEMPRE VISÍVEL, SEM PESO
+   E SEM O DESENHO DE EIXO VERTICAL)
+   ========================================================================== */
+function EstatisticasView({
+  plan,
+  metrics,
+  onRenameDiscipline,
+  onRenameTopic,
+  onStartFlow
+}) {
+  const [sortOrder, setSortOrder] = useState('indice'); // 'indice' | 'fortes' | 'fracos'
+  const [expandedRows, setExpandedRows] = useState({});
+  const [selectedDiscIds, setSelectedDiscIds] = useState({});
+  const [editingDiscId, setEditingDiscId] = useState(null);
+  const [editingDiscName, setEditingDiscName] = useState('');
+  const [editingTopicKey, setEditingTopicKey] = useState(null);
+  const [editingTopicName, setEditingTopicName] = useState('');
+
+  // Calcula dados de todas as matérias e seus tópicos (incluindo tudo salvo no Flow, Registro ou Edital)
+  const discStats = useMemo(() => {
+    return plan.disciplinas.map((disc, index) => {
+      const mEntry = metrics.discList.find((x) => x.disc.id === disc.id);
+      const acertos = mEntry ? mEntry.acertos : 0;
+      const erros = mEntry ? mEntry.erros : 0;
+      const resolvidas = acertos + erros;
+      const pctAcerto = resolvidas > 0 ? Math.round((acertos * 100) / resolvidas) : 0;
+      const pctErro = resolvidas > 0 ? 100 - pctAcerto : 0;
+
+      const topicosStats = (disc.topicos || []).map((t, tIdx) => {
+        const tAc = Number(t.acertos || 0);
+        const tEr = Number(t.erros || 0);
+        const tTot = tAc + tEr;
+        const tPctAc = tTot > 0 ? Math.round((tAc * 100) / tTot) : 0;
+        const tPctEr = tTot > 0 ? 100 - tPctAc : 0;
+        return {
+          ...t,
+          idx: tIdx,
+          acertos: tAc,
+          erros: tEr,
+          resolvidas: tTot,
+          pctAcerto: tPctAc,
+          pctErro: tPctEr
+        };
+      });
+
+      return {
+        disc,
+        index,
+        acertos,
+        erros,
+        resolvidas,
+        pctAcerto,
+        pctErro,
+        topicosStats
+      };
+    });
+  }, [plan, metrics]);
+
+  // Matérias com questões resolvidas (ou total de matérias)
+  const activeMateriasCount = useMemo(() => {
+    const withQ = discStats.filter((d) => d.resolvidas > 0).length;
+    return withQ > 0 ? withQ : discStats.length;
+  }, [discStats]);
+
+  // Ordenação conforme "Ordem de Exibição: Índice | Pontos Fortes | Pontos Fracos"
+  const sortedDiscStats = useMemo(() => {
+    const list = [...discStats];
+    list.sort((a, b) => {
+      const aHas = a.resolvidas > 0 ? 1 : 0;
+      const bHas = b.resolvidas > 0 ? 1 : 0;
+      if (aHas !== bHas) return bHas - aHas;
+
+      if (sortOrder === 'fortes') {
+        if (b.pctAcerto !== a.pctAcerto) return b.pctAcerto - a.pctAcerto;
+        return b.resolvidas - a.resolvidas;
+      }
+      if (sortOrder === 'fracos') {
+        if (a.pctAcerto !== b.pctAcerto) return a.pctAcerto - b.pctAcerto;
+        return b.erros - a.erros;
+      }
+      return a.index - b.index;
+    });
+    return list;
+  }, [discStats, sortOrder]);
+
+  const allSelected =
+    sortedDiscStats.length > 0 && sortedDiscStats.every((d) => Boolean(selectedDiscIds[d.disc.id]));
+
+  function toggleSelectAll(checked) {
+    if (!checked) {
+      setSelectedDiscIds({});
+    } else {
+      const next = {};
+      sortedDiscStats.forEach((d) => {
+        next[d.disc.id] = true;
+      });
+      setSelectedDiscIds(next);
+    }
+  }
+
+  const selectionTotals = useMemo(() => {
+    let resolvidas = 0;
+    let acertos = 0;
+    let erros = 0;
+    sortedDiscStats.forEach((d) => {
+      if (selectedDiscIds[d.disc.id]) {
+        resolvidas += d.resolvidas;
+        acertos += d.acertos;
+        erros += d.erros;
+      }
+    });
+    return { resolvidas, acertos, erros };
+  }, [sortedDiscStats, selectedDiscIds]);
+
+  return (
+    <div>
+      {/* BLOCO 1: DESEMPENHO GERAL (SEM O DESENHO DE LÍNGUA PORTUGUESA À DIREITA) */}
+      <div className="stats-section-box">
+        <div className="stats-section-header">
+          <span>Desempenho Geral</span>
+        </div>
+
+        <div className="stats-general-grid">
+          {/* Esquerda: 4 Indicadores (Questões resolvidas, Acertos, Total de matérias, Erros) */}
+          <div className="stats-numbers-2x2">
+            <div>
+              <div className="stats-num-item-title">Questões resolvidas</div>
+              <div className="stats-num-item-val">{metrics.totalQuestoes}</div>
+            </div>
+            <div>
+              <div className="stats-num-item-title">Acertos</div>
+              <div className="stats-num-item-val green">{metrics.totalAcertos}</div>
+            </div>
+            <div>
+              <div className="stats-num-item-title">Total de matérias</div>
+              <div className="stats-num-item-val">{activeMateriasCount}</div>
+            </div>
+            <div>
+              <div className="stats-num-item-title">Erros</div>
+              <div className="stats-num-item-val red">{metrics.totalErros}</div>
+            </div>
+          </div>
+
+          {/* Direita: Diagrama Circular Animado (Framer Motion style) */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <FramerMotionDonutChart
+              acertos={metrics.totalAcertos}
+              erros={metrics.totalErros}
+              size={172}
+              strokeWidth={30}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* BLOCO 2: DESEMPENHO POR MATÉRIA E ASSUNTO (ESTÉTICO, SEM PESO E COM GRÁFICO SEMPRE VISÍVEL) */}
+      <div className="stats-section-box">
+        <div className="stats-section-header">
+          <span>Desempenho por Matéria e Assunto</span>
+        </div>
+
+        <div className="stats-controls-bar">
+          <div className="stats-radio-group">
+            <strong>Ordem de Exibição:</strong>
+            {[
+              { id: 'indice', label: 'Índice' },
+              { id: 'fortes', label: 'Pontos Fortes' },
+              { id: 'fracos', label: 'Pontos Fracos' }
+            ].map((opt) => (
+              <label
+                key={opt.id}
+                onClick={() => setSortOrder(opt.id)}
+                style={{
+                  fontWeight: sortOrder === opt.id ? 800 : 600,
+                  color: sortOrder === opt.id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  borderColor: sortOrder === opt.id ? '#1C82A6' : 'var(--border-card)',
+                  background: sortOrder === opt.id ? 'rgba(28, 130, 166, 0.16)' : 'var(--bg-surface)'
+                }}
+              >
+                <span
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    border: `2px solid ${sortOrder === opt.id ? '#5BC0DE' : 'var(--text-secondary)'}`,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  {sortOrder === opt.id && (
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#5BC0DE' }} />
+                  )}
+                </span>
+                {opt.label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="stats-table-container">
+          <div className="stats-table-head">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={(e) => toggleSelectAll(e.target.checked)}
+                style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#1C82A6' }}
+              />
+              <span>Selecionar Todos</span>
+            </div>
+            <div style={{ textAlign: 'right' }}>Questões Resolvidas</div>
+            <div style={{ textAlign: 'center' }}>Desempenho (Gráfico por Matéria)</div>
+          </div>
+
+          {sortedDiscStats.map(({ disc, acertos, erros, resolvidas, pctAcerto, pctErro, topicosStats }) => {
+            const isExpanded = Boolean(expandedRows[disc.id]);
+            const isChecked = Boolean(selectedDiscIds[disc.id]);
+            const isEditingThisDisc = editingDiscId === disc.id;
+
+            return (
+              <React.Fragment key={disc.id}>
+                <div className="stats-table-row">
+                  <div className="stats-subject-cell">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={(e) =>
+                        setSelectedDiscIds((p) => ({ ...p, [disc.id]: e.target.checked }))
+                      }
+                      style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#1C82A6' }}
+                    />
+                    <button
+                      type="button"
+                      className="stats-expand-circle"
+                      onClick={() => setExpandedRows((p) => ({ ...p, [disc.id]: !isExpanded }))}
+                      title="Expandir / recolher assuntos desta matéria"
+                    >
+                      {isExpanded ? '−' : '+'}
+                    </button>
+
+                    {isEditingThisDisc ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                        <input
+                          type="text"
+                          value={editingDiscName}
+                          onChange={(e) => setEditingDiscName(e.target.value)}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 6,
+                            border: '1px solid #1C82A6',
+                            background: 'var(--bg-input)',
+                            color: 'var(--text-primary)',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            flex: 1
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-primary-mint"
+                          style={{ padding: '4px 8px', fontSize: 11 }}
+                          onClick={() => {
+                            if (editingDiscName.trim()) {
+                              onRenameDiscipline(disc.id, editingDiscName.trim());
+                            }
+                            setEditingDiscId(null);
+                          }}
+                        >
+                          ✓
+                        </button>
+                      </div>
+                    ) : (
+                      <span
+                        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                        onClick={() => setExpandedRows((p) => ({ ...p, [disc.id]: !isExpanded }))}
+                      >
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: disc.cor || '#1C82A6', display: 'inline-block' }} />
+                        <span>{disc.nome}</span>
+                        <button
+                          type="button"
+                          className="inline-edit-chip-btn"
+                          style={{ padding: '1px 6px', fontSize: 10.5 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingDiscId(disc.id);
+                            setEditingDiscName(disc.nome);
+                          }}
+                          title="Editar nome da matéria"
+                        >
+                          ✎
+                        </button>
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ textAlign: 'right', fontWeight: 800, fontSize: 14, color: 'var(--text-primary)' }}>
+                    {resolvidas}
+                  </div>
+
+                  {/* GRÁFICO SEMPRE APARECENDO */}
+                  <div className="stats-perf-cell">
+                    <div className="stats-bicolor-bar">
+                      {resolvidas > 0 ? (
+                        <>
+                          <div className="stats-bicolor-green" style={{ width: `${pctAcerto}%` }} />
+                          <div className="stats-bicolor-red" style={{ width: `${pctErro}%` }} />
+                        </>
+                      ) : (
+                        <div style={{ width: '100%', height: '100%', background: 'rgba(148,163,184,0.22)' }} />
+                      )}
+                    </div>
+
+                    <div className="stats-perf-text">
+                      <span className="g">{pctAcerto}%</span>{' '}
+                      <span className="cnt">({acertos})</span>{' '}
+                      <span className="r" style={{ marginLeft: 4 }}>{pctErro}%</span>{' '}
+                      <span className="cnt">({erros})</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assuntos / Tópicos da Matéria quando expandido */}
+                {isExpanded &&
+                  topicosStats.map((t) => {
+                    const tKey = `${disc.id}_${t.id}`;
+                    const isEditingThisTopic = editingTopicKey === tKey;
+                    return (
+                      <div key={t.id} className="stats-table-row is-subtopic">
+                        <div className="stats-subject-cell" style={{ fontWeight: 500, fontSize: 12.5 }}>
+                          <span style={{ color: '#5BC0DE', fontSize: 12, fontWeight: 800 }}>↳</span>
+                          {isEditingThisTopic ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                              <input
+                                type="text"
+                                value={editingTopicName}
+                                onChange={(e) => setEditingTopicName(e.target.value)}
+                                style={{
+                                  padding: '3px 8px',
+                                  borderRadius: 6,
+                                  border: '1px solid #1C82A6',
+                                  background: 'var(--bg-input)',
+                                  color: 'var(--text-primary)',
+                                  fontSize: 12.5,
+                                  flex: 1
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="btn-primary-mint"
+                                style={{ padding: '3px 8px', fontSize: 11 }}
+                                onClick={() => {
+                                  if (editingTopicName.trim()) {
+                                    onRenameTopic(disc.id, t.id, editingTopicName.trim());
+                                  }
+                                  setEditingTopicKey(null);
+                                }}
+                              >
+                                ✓
+                              </button>
+                            </div>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span>{t.assunto}</span>
+                              <button
+                                type="button"
+                                className="inline-edit-chip-btn"
+                                style={{ padding: '1px 6px', fontSize: 10 }}
+                                onClick={() => {
+                                  setEditingTopicKey(tKey);
+                                  setEditingTopicName(t.assunto);
+                                }}
+                                title="Editar nome do assunto/tópico"
+                              >
+                                ✎
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-edit-chip-btn"
+                                style={{ padding: '1px 6px', fontSize: 10 }}
+                                onClick={() => onStartFlow(disc.id, t.id)}
+                                title="Estudar este tópico no Flow"
+                              >
+                                ▷ Flow
+                              </button>
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ textAlign: 'right', fontWeight: 700, fontSize: 12.5 }}>
+                          {t.resolvidas}
+                        </div>
+
+                        <div className="stats-perf-cell">
+                          <div className="stats-bicolor-bar" style={{ height: 12 }}>
+                            {t.resolvidas > 0 ? (
+                              <>
+                                <div className="stats-bicolor-green" style={{ width: `${t.pctAcerto}%` }} />
+                                <div className="stats-bicolor-red" style={{ width: `${t.pctErro}%` }} />
+                              </>
+                            ) : (
+                              <div style={{ width: '100%', height: '100%', background: 'rgba(148,163,184,0.18)' }} />
+                            )}
+                          </div>
+
+                          <div className="stats-perf-text" style={{ fontSize: 12 }}>
+                            <span className="g">{t.pctAcerto}%</span>{' '}
+                            <span className="cnt">({t.acertos})</span>{' '}
+                            <span className="r" style={{ marginLeft: 4 }}>{t.pctErro}%</span>{' '}
+                            <span className="cnt">({t.erros})</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </React.Fragment>
+            );
+          })}
+
+          <div className="stats-table-footer">
+            <strong>Seleção</strong>
+            <span>Resolvidas: {selectionTotals.resolvidas}</span>
+            <span style={{ color: '#00A859' }}>Acertos: {selectionTotals.acertos}</span>
+            <span style={{ color: '#F22819' }}>Erros: {selectionTotals.erros}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   PAINEL ("Painel" — COMPACTO, SEM ESPAÇO EXAGERADO, COM DIAGRAMA CIRCULAR DO
+   TOTAL DE QUESTÕES FEITAS DE TODOS OS TÓPICOS, ERROS E ACERTOS + MATÉRIAS EDITÁVEIS)
    ========================================================================== */
 function HomeView({
   plan,
@@ -2324,8 +3303,12 @@ function HomeView({
   onStartFlow,
   onOpenReg,
   onOpenDiscInEdital,
-  onSwitchTab
+  onSwitchTab,
+  onRenameDiscipline
 }) {
+  const [editingDiscId, setEditingDiscId] = useState(null);
+  const [editingDiscName, setEditingDiscName] = useState('');
+
   const sessionDates = new Set((plan.sessions || []).map((s) => s.date));
   const isDayDone = (dateStr) => {
     if (plan.manualStreakDays && plan.manualStreakDays[dateStr] !== undefined) {
@@ -2366,28 +3349,63 @@ function HomeView({
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Painel Principal</h1>
+          <h1 className="page-title">Painel</h1>
           <p className="page-subtitle">
             Edital ativo: <strong>{plan.nome}</strong>
           </p>
         </div>
+        <button className="btn-outline-mint" onClick={() => onSwitchTab('estatisticas')}>
+          📊 Ver Painel de Estatísticas →
+        </button>
       </div>
 
-      {/* SOMENTE OS 2 CARDS REAIS PEDIDOS */}
+      {/* CARDS COMPACTOS E PROPORCIONAIS (SEM ESPAÇO VAZIO EXAGERADO) */}
       <div className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-label">TEMPO REAL ESTUDADO</div>
-          <div className="kpi-sub">Soma das sessões finalizadas no Flow + Registros</div>
-          <div className="kpi-value">{formatMinutesToHm(metrics.totalMin)}</div>
+        <div
+          className="kpi-card"
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 14,
+            padding: '14px 18px'
+          }}
+        >
+          <div>
+            <div className="kpi-label">TEMPO REAL ESTUDADO</div>
+            <div className="kpi-sub">Sessões do Flow + Registros</div>
+          </div>
+          <div className="kpi-value" style={{ marginTop: 0 }}>{formatMinutesToHm(metrics.totalMin)}</div>
         </div>
 
-        <div className="kpi-card">
-          <div className="kpi-label">DESEMPENHO EM QUESTÕES</div>
-          <div className="kpi-sub">
-            <div className="good">✓ {metrics.totalAcertos} Certas</div>
-            <div className="bad">✗ {metrics.totalErros} Erradas</div>
+        <div
+          className="kpi-card"
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 14,
+            padding: '12px 18px'
+          }}
+        >
+          <div>
+            <div className="kpi-label">QUESTÕES DE TODOS OS TÓPICOS</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: '#FFFFFF', margin: '3px 0' }}>
+              {metrics.totalQuestoes}{' '}
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(241,245,249,0.75)' }}>resolvidas</span>
+            </div>
+            <div className="kpi-sub" style={{ display: 'flex', gap: 12, marginTop: 2 }}>
+              <span className="good" style={{ color: '#00A859', fontSize: 12.5 }}>✓ {metrics.totalAcertos} Acertos</span>
+              <span className="bad" style={{ color: '#F22819', fontSize: 12.5 }}>✗ {metrics.totalErros} Erros</span>
+            </div>
           </div>
-          <div className="kpi-value">{metrics.pctDesempenho}%</div>
+
+          <FramerMotionDonutChart
+            acertos={metrics.totalAcertos}
+            erros={metrics.totalErros}
+            size={84}
+            strokeWidth={15}
+          />
         </div>
       </div>
 
@@ -2427,7 +3445,7 @@ function HomeView({
         <div className="estudei-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div>
-              <div className="kpi-label">DISCIPLINAS DO EDITAL TRT 1 ({plan.disciplinas.length})</div>
+              <div className="kpi-label">DISCIPLINAS DO EDITAL ({plan.disciplinas.length}) — CLIQUE EM ✎ PARA EDITAR</div>
             </div>
             <button className="btn-outline-mint" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => onSwitchTab('edital')}>
               Abrir Tópicos →
@@ -2440,28 +3458,75 @@ function HomeView({
                 <tr>
                   <th>Disciplina</th>
                   <th>Horas</th>
-                  <th style={{ color: '#5BC0DE' }}>✓ Certas</th>
-                  <th style={{ color: '#F26B5B' }}>✗ Erradas</th>
+                  <th style={{ color: '#00A859' }}>✓ Certas</th>
+                  <th style={{ color: '#F22819' }}>✗ Erradas</th>
                   <th>%</th>
                   <th style={{ textAlign: 'right' }}>Ações</th>
                 </tr>
-              </thead>
+                            </thead>
               <tbody>
                 {metrics.discList.map(({ disc, minutos, acertos, erros }) => {
                   const tot = acertos + erros;
                   const pct = tot > 0 ? Math.round((acertos * 100) / tot) : null;
                   const cls = pct === null ? 'pct-none' : pct >= 80 ? 'pct-high' : pct >= 65 ? 'pct-mid' : 'pct-low';
+                  const isEditing = editingDiscId === disc.id;
                   return (
                     <tr key={disc.id}>
                       <td>
-                        <span className="disc-name-link" onClick={() => onOpenDiscInEdital(disc.id)}>
-                          <span className="dot-color" style={{ background: disc.cor }} />
-                          <span>{disc.nome}</span>
-                        </span>
+                        {isEditing ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <input
+                              type="text"
+                              value={editingDiscName}
+                              onChange={(e) => setEditingDiscName(e.target.value)}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: 6,
+                                border: '1px solid #1C82A6',
+                                background: 'var(--bg-input)',
+                                color: 'var(--text-primary)',
+                                fontSize: 12.5,
+                                fontWeight: 700
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="btn-primary-mint"
+                              style={{ padding: '3px 8px', fontSize: 11 }}
+                              onClick={() => {
+                                if (editingDiscName.trim()) {
+                                  onRenameDiscipline(disc.id, editingDiscName.trim());
+                                }
+                                setEditingDiscId(null);
+                              }}
+                            >
+                              ✓ Salvar
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <span className="disc-name-link" onClick={() => onOpenDiscInEdital(disc.id)}>
+                              <span className="dot-color" style={{ background: disc.cor }} />
+                              <span>{disc.nome}</span>
+                            </span>
+                            <button
+                              type="button"
+                              className="inline-edit-chip-btn"
+                              style={{ padding: '1px 6px', fontSize: 10 }}
+                              onClick={() => {
+                                setEditingDiscId(disc.id);
+                                setEditingDiscName(disc.nome);
+                              }}
+                              title="Editar nome da matéria"
+                            >
+                              ✎
+                            </button>
+                          </span>
+                        )}
                       </td>
                       <td style={{ fontWeight: 700 }}>{minutos > 0 ? formatMinutesToHm(minutos) : '0h00min'}</td>
-                      <td style={{ color: '#5BC0DE', fontWeight: 700 }}>{acertos}</td>
-                      <td style={{ color: '#F26B5B', fontWeight: 700 }}>{erros}</td>
+                      <td style={{ color: '#00A859', fontWeight: 700 }}>{acertos}</td>
+                      <td style={{ color: '#F22819', fontWeight: 700 }}>{erros}</td>
                       <td>
                         <span className={`pct-badge ${cls}`}>{pct !== null ? `${pct}%` : '-'}</span>
                       </td>
@@ -2491,60 +3556,53 @@ function HomeView({
 
         <div className="estudei-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <strong>📊 Desempenho e Metas Semanais</strong>
+            <strong>📊 Desempenho Geral e Metas Semanais</strong>
             <button className="btn-outline-mint" style={{ padding: '4px 10px', fontSize: 11.5 }} onClick={handleEditWeeklyGoals}>
               ✎ Editar Metas
             </button>
           </div>
 
           <div className="estudei-white-box" style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, color: '#94A3B8', marginBottom: 8 }}>METAS DA SEMANA</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-secondary)', marginBottom: 8 }}>METAS DA SEMANA</div>
             <div style={{ marginBottom: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: '#E2E8F0', marginBottom: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
                 <span>{formatMinutesToHm(metrics.totalMin)} / {plan.weeklyGoalHours}h00min</span>
                 <span>Horas de Estudo ({pctHours}%)</span>
               </div>
-              <div style={{ height: 12, background: '#2A303D', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ height: 12, background: 'rgba(148,163,184,0.2)', borderRadius: 99, overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${pctHours}%`, background: '#1C82A6' }} />
               </div>
             </div>
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: '#E2E8F0', marginBottom: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
                 <span>{metrics.totalQuestoes} / {plan.weeklyGoalQuestions} questões</span>
                 <span>Questões Resolvidas ({pctQuest}%)</span>
               </div>
-              <div style={{ height: 12, background: '#2A303D', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ height: 12, background: 'rgba(148,163,184,0.2)', borderRadius: 99, overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${pctQuest}%`, background: '#5BC0DE' }} />
               </div>
             </div>
           </div>
 
           <div className="visual-progress-showcase">
-            <div className="estudei-white-box" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: '#94A3B8', alignSelf: 'flex-start' }}>TAXA DE ACERTO</div>
-              <div className="doughnut-wrap">
-                <svg width="135" height="135" viewBox="0 0 42 42">
-                  <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#F26B5B" strokeWidth="5.5" />
-                  <circle
-                    cx="21"
-                    cy="21"
-                    r="15.915"
-                    fill="transparent"
-                    stroke="#1C82A6"
-                    strokeWidth="5.5"
-                    strokeDasharray={`${metrics.pctDesempenho} ${100 - metrics.pctDesempenho}`}
-                    strokeDashoffset="25"
-                  />
-                </svg>
-                <div className="doughnut-center">{metrics.pctDesempenho}%</div>
+            <div className="estudei-white-box" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--text-secondary)', alignSelf: 'flex-start' }}>
+                DIAGRAMA DE QUESTÕES ({metrics.totalQuestoes})
               </div>
-              <div style={{ fontSize: 11, color: '#94A3B8' }}>
-                {metrics.totalAcertos} certas / {metrics.totalErros} erradas
+              <FramerMotionDonutChart
+                acertos={metrics.totalAcertos}
+                erros={metrics.totalErros}
+                size={138}
+                strokeWidth={24}
+              />
+              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 700 }}>
+                <span style={{ color: '#00A859' }}>✓ {metrics.totalAcertos} acertos</span> •{' '}
+                <span style={{ color: '#F22819' }}>✗ {metrics.totalErros} erros</span>
               </div>
             </div>
 
             <div className="estudei-white-box">
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: '#94A3B8', marginBottom: 8 }}>DISCIPLINAS × HORAS ESTUDADAS</div>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--text-secondary)', marginBottom: 8 }}>DISCIPLINAS × HORAS ESTUDADAS</div>
               {metrics.discList
                 .slice()
                 .sort((a, b) => b.minutos - a.minutos)
@@ -2573,7 +3631,7 @@ function HomeView({
 }
 
 /* ==========================================================================
-   CADERNO DE ERROS (COM AS ERRADAS MARCADAS NO FLOW + TEMA DAS ERRADAS)
+   CADERNO DE ERROS (COM AS ERRADAS E NOTAS MARCADAS NO FLOW / REGISTRO)
    ========================================================================== */
 function CadernoDeErrosView({ plan, metrics, onUpdatePlan, onStartFlow, showToast }) {
   const notebookEntries = plan.errorNotebook || [];
@@ -2606,21 +3664,21 @@ function CadernoDeErrosView({ plan, metrics, onUpdatePlan, onStartFlow, showToas
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">🎯 Caderno de Erros</h1>
+          <h1 className="page-title">🎯 Caderno de Erros & Notas de Revisão</h1>
           <p className="page-subtitle">
-            Todas as questões <strong>Erradas</strong> marcadas no final de cada sessão do <strong>Flow</strong>, indicando a <strong>Disciplina</strong> e o <strong>Tema das erradas</strong>.
+            Todas as questões <strong>Erradas</strong> e <strong>Notas de Erros</strong> registradas no Flow e no Registro de Estudo para você revisar depois.
           </p>
         </div>
       </div>
 
       <div className="estudei-card" style={{ marginBottom: 20 }}>
         <div className="kpi-label" style={{ marginBottom: 12 }}>
-          ERRADAS REGISTRADAS NAS SESSÕES DO FLOW ({notebookEntries.length})
+          REGISTROS E NOTAS DOS MEUS ERROS ({notebookEntries.length})
         </div>
 
         {notebookEntries.length === 0 ? (
           <div style={{ padding: 18, color: 'var(--text-secondary)', fontSize: 13.5 }}>
-            Nenhuma questão errada marcada ainda. Ao finalizar uma sessão de 25 min no Flow, informe os erros no popup <em>"Registrar acertos?"</em> e eles aparecerão aqui com o tema!
+            Nenhuma questão errada ou nota registrada ainda. Ao finalizar uma sessão no Flow ou salvar no Registro de Estudo, suas notas e erros aparecerão aqui!
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2654,7 +3712,7 @@ function CadernoDeErrosView({ plan, metrics, onUpdatePlan, onStartFlow, showToas
                           fontWeight: 800
                         }}
                       >
-                        ✗ {item.erros} errada(s)
+                        ✗ {item.erros || 0} errada(s)
                       </span>
                       <strong>{item.disciplinaNome}</strong>
                       <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
@@ -2662,11 +3720,11 @@ function CadernoDeErrosView({ plan, metrics, onUpdatePlan, onStartFlow, showToas
                       </span>
                     </div>
                     <div style={{ fontSize: 14, color: 'var(--accent-mint)', fontWeight: 700, marginTop: 5 }}>
-                      📌 Tema das Erradas: {item.tema}
+                      📌 Tema: {item.tema}
                     </div>
                     {item.observacao && (
-                      <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 3 }}>
-                        Nota: {item.observacao}
+                      <div style={{ fontSize: 13, color: 'var(--text-primary)', marginTop: 5, whiteSpace: 'pre-wrap' }}>
+                        📝 <strong>Nota dos meus erros:</strong> {item.observacao}
                       </div>
                     )}
                   </div>
@@ -2754,7 +3812,7 @@ function CadernoDeErrosView({ plan, metrics, onUpdatePlan, onStartFlow, showToas
 }
 
 /* ==========================================================================
-   EDITAL VERTICALIZADO (TRT 1 / TI)
+   EDITAL VERTICALIZADO (COM MATÉRIAS E TÓPICOS EDITÁVEIS INLINE — DIGITAR E SALVAR)
    ========================================================================== */
 function EditalView({
   plan,
@@ -2767,9 +3825,22 @@ function EditalView({
   setExpandedDiscs,
   onUpdateTopicInline,
   onStartFlow,
-  onOpenNewPlan
+  onOpenNewPlan,
+  onRenameDiscipline,
+  onAddDiscipline,
+  onRenameTopic,
+  onAddTopic
 }) {
   const q = search.trim().toLowerCase();
+  const [editingDiscId, setEditingDiscId] = useState(null);
+  const [editingDiscText, setEditingDiscText] = useState('');
+  const [addingNewDisc, setAddingNewDisc] = useState(false);
+  const [newDiscText, setNewDiscText] = useState('');
+
+  const [editingTopicId, setEditingTopicId] = useState(null);
+  const [editingTopicText, setEditingTopicText] = useState('');
+  const [addingTopicForDiscId, setAddingTopicForDiscId] = useState(null);
+  const [newTopicText, setNewTopicText] = useState('');
 
   return (
     <div>
@@ -2777,13 +3848,67 @@ function EditalView({
         <div>
           <h1 className="page-title">Edital Verticalizado — {plan.nome}</h1>
           <p className="page-subtitle">
-            Marque tópicos estudados, ajuste Certas/Erradas ou clique em <strong>▷ Flow</strong> para iniciar uma sessão de 25 min no tema.
+            Todas as matérias e tópicos são <strong>editáveis</strong>: clique em <strong>✎ Editar</strong> ou <strong>+ Nova Matéria / Tópico</strong> para digitar e salvar.
           </p>
         </div>
-        <button className="btn-outline-mint" onClick={onOpenNewPlan}>
-          ✨ Adicionar Outro Edital
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn-primary-mint"
+            onClick={() => {
+              setAddingNewDisc((v) => !v);
+              setNewDiscText('');
+            }}
+          >
+            + Nova Matéria no Edital
+          </button>
+          <button className="btn-outline-mint" onClick={onOpenNewPlan}>
+            ✨ Adicionar Outro Edital
+          </button>
+        </div>
       </div>
+
+      {addingNewDisc && (
+        <div className="estudei-card" style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 13 }}>Nova Matéria / Disciplina:</strong>
+          <input
+            type="text"
+            value={newDiscText}
+            onChange={(e) => setNewDiscText(e.target.value)}
+            placeholder="Digite o nome da nova matéria e clique em Salvar..."
+            style={{
+              flex: 1,
+              minWidth: 220,
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid #1C82A6',
+              background: 'var(--bg-input)',
+              color: 'var(--text-primary)',
+              fontSize: 13
+            }}
+          />
+          <button
+            type="button"
+            className="btn-primary-mint"
+            onClick={() => {
+              if (newDiscText.trim()) {
+                onAddDiscipline(newDiscText.trim());
+                setNewDiscText('');
+                setAddingNewDisc(false);
+              }
+            }}
+          >
+            ✓ Salvar Matéria
+          </button>
+          <button
+            type="button"
+            className="btn-outline-mint"
+            onClick={() => setAddingNewDisc(false)}
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
 
       <div className="edital-controls">
         <input
@@ -2823,11 +3948,12 @@ function EditalView({
           return true;
         });
 
-        if (filteredTopics.length === 0) return null;
+        if (filteredTopics.length === 0 && q.length > 0) return null;
 
         const doneCount = disc.topicos.filter((t) => t.concluido).length;
         const discPct = disc.topicos.length > 0 ? Math.round((doneCount * 100) / disc.topicos.length) : 0;
         const isOpen = Boolean(expandedDiscs[disc.id]) || q.length > 0;
+        const isEditingThisDisc = editingDiscId === disc.id;
 
         return (
           <div className="edital-discipline-block" key={disc.id}>
@@ -2836,11 +3962,81 @@ function EditalView({
               style={{ borderLeftColor: disc.cor }}
               onClick={() => setExpandedDiscs((p) => ({ ...p, [disc.id]: !isOpen }))}
             >
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 700 }}>{disc.agrupamento}</div>
-                <div style={{ fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span>{disc.nome}</span>
-                  <span className="tec-q-pill">{disc.totalQuestoes || 0} questões no Tec</span>
+                <div style={{ fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
+                  {isEditingThisDisc ? (
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="text"
+                        value={editingDiscText}
+                        onChange={(e) => setEditingDiscText(e.target.value)}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: 8,
+                          border: '1px solid #1C82A6',
+                          background: 'var(--bg-input)',
+                          color: 'var(--text-primary)',
+                          fontSize: 14,
+                          fontWeight: 800,
+                          minWidth: 250
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-primary-mint"
+                        style={{ padding: '5px 10px', fontSize: 11.5 }}
+                        onClick={() => {
+                          if (editingDiscText.trim()) {
+                            onRenameDiscipline(disc.id, editingDiscText.trim());
+                          }
+                          setEditingDiscId(null);
+                        }}
+                      >
+                        ✓ Salvar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-outline-mint"
+                        style={{ padding: '5px 10px', fontSize: 11.5 }}
+                        onClick={() => setEditingDiscId(null)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span>{disc.nome}</span>
+                      <button
+                        type="button"
+                        className="inline-edit-chip-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingDiscId(disc.id);
+                          setEditingDiscText(disc.nome);
+                        }}
+                        title="Editar nome desta matéria"
+                      >
+                        ✎ Editar Matéria
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-edit-chip-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedDiscs((p) => ({ ...p, [disc.id]: true }));
+                          setAddingTopicForDiscId(disc.id);
+                          setNewTopicText('');
+                        }}
+                        title="Adicionar novo tópico nesta matéria"
+                      >
+                        + Novo Tópico
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -2853,20 +4049,72 @@ function EditalView({
 
             {isOpen && (
               <div>
+                {addingTopicForDiscId === disc.id && (
+                  <div
+                    style={{
+                      padding: '12px 18px',
+                      background: 'rgba(28, 130, 166, 0.12)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      flexWrap: 'wrap'
+                    }}
+                  >
+                    <strong style={{ fontSize: 12.5 }}>Novo Tópico em {disc.nome}:</strong>
+                    <input
+                      type="text"
+                      value={newTopicText}
+                      onChange={(e) => setNewTopicText(e.target.value)}
+                      placeholder="Digite o nome do assunto/tópico e clique em Salvar..."
+                      style={{
+                        flex: 1,
+                        minWidth: 220,
+                        padding: '6px 10px',
+                        borderRadius: 8,
+                        border: '1px solid #1C82A6',
+                        background: 'var(--bg-input)',
+                        color: 'var(--text-primary)',
+                        fontSize: 12.5
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary-mint"
+                      style={{ padding: '5px 12px', fontSize: 12 }}
+                      onClick={() => {
+                        if (newTopicText.trim()) {
+                          onAddTopic(disc.id, newTopicText.trim());
+                          setNewTopicText('');
+                          setAddingTopicForDiscId(null);
+                        }
+                      }}
+                    >
+                      ✓ Salvar Tópico
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-outline-mint"
+                      style={{ padding: '5px 10px', fontSize: 12 }}
+                      onClick={() => setAddingTopicForDiscId(null)}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+
                 <div
                   className="edital-topic-row"
                   style={{
-                    gridTemplateColumns: '1fr 90px 110px 110px 60px 150px',
-                    background: 'rgba(0,0,0,0.18)',
+                    gridTemplateColumns: '1fr 110px 110px 60px 150px',
+                    background: 'rgba(0,0,0,0.12)',
                     fontSize: 11,
                     fontWeight: 800,
                     color: 'var(--text-secondary)'
                   }}
                 >
-                  <div>TEMA / ASSUNTO DO EDITAL</div>
-                  <div style={{ textAlign: 'center' }}>NO TEC</div>
-                  <div style={{ textAlign: 'center', color: '#5BC0DE' }}>✓ CERTAS</div>
-                  <div style={{ textAlign: 'center', color: '#F26B5B' }}>✗ ERRADAS</div>
+                  <div>TEMA / ASSUNTO DO EDITAL (EDITÁVEL)</div>
+                  <div style={{ textAlign: 'center', color: '#00A859' }}>✓ CERTAS</div>
+                  <div style={{ textAlign: 'center', color: '#F22819' }}>✗ ERRADAS</div>
                   <div style={{ textAlign: 'center' }}>%</div>
                   <div style={{ textAlign: 'right' }}>AÇÕES</div>
                 </div>
@@ -2877,12 +4125,13 @@ function EditalView({
                   const tot = ac + er;
                   const pct = tot > 0 ? Math.round((ac * 100) / tot) : null;
                   const badgeCls = pct === null ? 'pct-none' : pct >= 80 ? 'pct-high' : pct >= 65 ? 'pct-mid' : 'pct-low';
+                  const isEditingThisTopic = editingTopicId === t.id;
 
                   return (
                     <div
                       key={t.id}
                       className={`edital-topic-row ${t.concluido ? 'completed' : ''}`}
-                      style={{ gridTemplateColumns: '1fr 90px 110px 110px 60px 150px' }}
+                      style={{ gridTemplateColumns: '1fr 110px 110px 60px 150px' }}
                     >
                       <div className="edital-topic-title" style={{ paddingLeft: Math.min(3, t.nivel || 0) * 16 }}>
                         <input
@@ -2891,13 +4140,61 @@ function EditalView({
                           checked={Boolean(t.concluido)}
                           onChange={(e) => onUpdateTopicInline(disc.id, t.id, 'concluido', e.target.checked)}
                         />
-                        <span style={{ fontWeight: t.nivel === 0 ? 700 : 400 }}>
-                          {idx + 1}. {t.assunto}
-                        </span>
-                      </div>
-
-                      <div style={{ textAlign: 'center' }}>
-                        <span className="tec-q-pill">{t.questoesTexto || `${t.questoes} q`}</span>
+                        {isEditingThisTopic ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                            <input
+                              type="text"
+                              value={editingTopicText}
+                              onChange={(e) => setEditingTopicText(e.target.value)}
+                              style={{
+                                flex: 1,
+                                padding: '4px 8px',
+                                borderRadius: 6,
+                                border: '1px solid #1C82A6',
+                                background: 'var(--bg-input)',
+                                color: 'var(--text-primary)',
+                                fontSize: 12.5
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="btn-primary-mint"
+                              style={{ padding: '4px 8px', fontSize: 11 }}
+                              onClick={() => {
+                                if (editingTopicText.trim()) {
+                                  onRenameTopic(disc.id, t.id, editingTopicText.trim());
+                                }
+                                setEditingTopicId(null);
+                              }}
+                            >
+                              ✓ Salvar
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-outline-mint"
+                              style={{ padding: '4px 8px', fontSize: 11 }}
+                              onClick={() => setEditingTopicId(null)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ fontWeight: t.nivel === 0 ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span>{idx + 1}. {t.assunto}</span>
+                            <button
+                              type="button"
+                              className="inline-edit-chip-btn"
+                              style={{ padding: '1px 6px', fontSize: 10 }}
+                              onClick={() => {
+                                setEditingTopicId(t.id);
+                                setEditingTopicText(t.assunto);
+                              }}
+                              title="Editar nome deste tópico"
+                            >
+                              ✎
+                            </button>
+                          </span>
+                        )}
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
@@ -2911,11 +4208,11 @@ function EditalView({
                           type="number"
                           value={ac}
                           onChange={(e) => onUpdateTopicInline(disc.id, t.id, 'acertos', e.target.value, true)}
-                          style={{ width: 42, textAlign: 'center', background: 'transparent', border: '1px solid rgba(28,130,166,0.5)', borderRadius: 6, color: '#5BC0DE', fontWeight: 800, padding: '2px 0' }}
+                          style={{ width: 42, textAlign: 'center', background: 'transparent', border: '1px solid rgba(0,168,89,0.5)', borderRadius: 6, color: '#00A859', fontWeight: 800, padding: '2px 0' }}
                         />
                         <button
                           onClick={() => onUpdateTopicInline(disc.id, t.id, 'acertos', 1)}
-                          style={{ width: 22, height: 22, borderRadius: 6, border: '1px solid #1C82A6', background: 'rgba(28,130,166,0.2)', color: '#5BC0DE', fontWeight: 800, cursor: 'pointer' }}
+                          style={{ width: 22, height: 22, borderRadius: 6, border: '1px solid #00A859', background: 'rgba(0,168,89,0.18)', color: '#00A859', fontWeight: 800, cursor: 'pointer' }}
                         >
                           +
                         </button>
@@ -2932,11 +4229,11 @@ function EditalView({
                           type="number"
                           value={er}
                           onChange={(e) => onUpdateTopicInline(disc.id, t.id, 'erros', e.target.value, true)}
-                          style={{ width: 42, textAlign: 'center', background: 'transparent', border: '1px solid rgba(242,107,91,0.4)', borderRadius: 6, color: '#F26B5B', fontWeight: 800, padding: '2px 0' }}
+                          style={{ width: 42, textAlign: 'center', background: 'transparent', border: '1px solid rgba(242,40,25,0.45)', borderRadius: 6, color: '#F22819', fontWeight: 800, padding: '2px 0' }}
                         />
                         <button
                           onClick={() => onUpdateTopicInline(disc.id, t.id, 'erros', 1)}
-                          style={{ width: 22, height: 22, borderRadius: 6, border: '1px solid #F26B5B', background: 'rgba(242,107,91,0.15)', color: '#F26B5B', fontWeight: 800, cursor: 'pointer' }}
+                          style={{ width: 22, height: 22, borderRadius: 6, border: '1px solid #F22819', background: 'rgba(242,40,25,0.15)', color: '#F22819', fontWeight: 800, cursor: 'pointer' }}
                         >
                           +
                         </button>
@@ -2949,20 +4246,11 @@ function EditalView({
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                         <button
                           className="btn-primary-mint"
-                          style={{ padding: '4px 8px', fontSize: 11 }}
+                          style={{ padding: '4px 10px', fontSize: 11.5 }}
                           onClick={() => onStartFlow(disc.id, t.id)}
                         >
                           ▷ Flow
                         </button>
-                        <a
-                          href={disc.url || 'https://www.tecconcursos.com.br'}
-                          target="_blank"
-                          rel="noopener"
-                          className="btn-outline-mint"
-                          style={{ padding: '4px 8px', fontSize: 11, textDecoration: 'none' }}
-                        >
-                          Tec ↗
-                        </a>
                       </div>
                     </div>
                   );
@@ -2977,84 +4265,8 @@ function EditalView({
 }
 
 /* ==========================================================================
-   AUTOMAÇÃO TEC CONCURSOS
-   ========================================================================== */
-function TecAutomacaoView({ onApplyTecBatch }) {
-  const [pasteText, setPasteText] = useState('');
-
-  function handleParsePasted() {
-    if (!pasteText.trim()) return alert('Cole as linhas da tabela de atividades do Tec Concursos.');
-    const items = [];
-    pasteText
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .forEach((line) => {
-        const parts = line.split(/\||\t|;/).map((s) => s.trim()).filter(Boolean);
-        if (parts.length >= 3) {
-          const nums = parts
-            .slice(1)
-            .map((p) => parseInt(p.replace(/\D/g, ''), 10))
-            .filter((n) => !isNaN(n));
-          if (nums.length >= 2) {
-            const acertos = nums.length >= 3 ? nums[1] : nums[0];
-            const erros = nums.length >= 3 ? nums[2] : nums[1];
-            items.push({
-              disciplina: parts[0],
-              assunto: parts.length >= 4 && isNaN(parseInt(parts[1], 10)) ? parts[1] : parts[0],
-              acertos,
-              erros,
-              tempoMinutos: 25
-            });
-          }
-        }
-      });
-    if (items.length === 0) return alert('Use o formato: Matéria | Assunto | Total | Certas | Erradas');
-    onApplyTecBatch(items);
-    setPasteText('');
-  }
-
-  return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">⚡ Automação Tec Concursos</h1>
-          <p className="page-subtitle">
-            Sincronize suas questões Certas e Erradas de <code>/estatisticas/atividades</code> direto para o Caderno de Erros e Histórico.
-          </p>
-        </div>
-      </div>
-
-      <div className="estudei-card">
-        <div className="kpi-label" style={{ marginBottom: 8 }}>
-          COLAR TABELA DE /ESTATISTICAS/ATIVIDADES OU USAR EXTENSÃO LOCAL (PASTA TEC-EXTENSION)
-        </div>
-        <textarea
-          rows="6"
-          value={pasteText}
-          onChange={(e) => setPasteText(e.target.value)}
-          style={{
-            width: '100%',
-            background: 'var(--bg-input)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border-card)',
-            borderRadius: 10,
-            padding: 10,
-            fontSize: 12.5,
-            marginBottom: 10
-          }}
-          placeholder={'TI - Redes de Computadores | Arquitetura TCP/IP | 20 | 17 | 3\nTI - Banco de Dados | Modelo Relacional | 15 | 12 | 3'}
-        />
-        <button className="btn-primary-mint" onClick={handleParsePasted}>
-          ⚡ Filtrar Certas e Erradas e Enviar ao Caderno de Erros
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ==========================================================================
-   MODAL REGISTRO DE ESTUDO MANUAL
+   MODAL REGISTRO DE ESTUDO MANUAL (COM MATÉRIAS E TÓPICOS EDITÁVEIS — DIGITAR E
+   SALVAR — E CAMPO NOTAS ONDE FALO DOS MEUS ERROS PARA REVISAR DEPOIS)
    ========================================================================== */
 function RegistroEstudoModal({
   plans,
@@ -3063,7 +4275,11 @@ function RegistroEstudoModal({
   initialTopicoId,
   initialMinutos,
   onClose,
-  onSave
+  onSave,
+  onRenameDiscipline,
+  onAddDiscipline,
+  onRenameTopic,
+  onAddTopic
 }) {
   const [datePreset, setDatePreset] = useState('hoje');
   const [customDate, setCustomDate] = useState(toISODate(0));
@@ -3084,19 +4300,51 @@ function RegistroEstudoModal({
   const [acertos, setAcertos] = useState(0);
   const [erros, setErros] = useState(0);
 
+  // Estados para editar ou criar matéria e tópico direto no Registro de Estudos
+  const [discEditMode, setDiscEditMode] = useState(null); // null | 'rename' | 'add'
+  const [discTextInput, setDiscTextInput] = useState('');
+  const [topicEditMode, setTopicEditMode] = useState(null); // null | 'rename' | 'add'
+  const [topicTextInput, setTopicTextInput] = useState('');
+
   useEffect(() => {
     const firstD = selectedPlan.disciplinas[0];
     if (firstD && !selectedPlan.disciplinas.some((d) => d.id === discId)) {
       setDiscId(firstD.id);
       setTopicoId(firstD.topicos[0]?.id || '');
     }
-  }, [selectedPlanId]);
+  }, [selectedPlanId, selectedPlan]);
 
   useEffect(() => {
     if (selectedDisc && !selectedDisc.topicos.some((t) => t.id === topicoId)) {
       setTopicoId(selectedDisc.topicos[0]?.id || '');
     }
-  }, [discId]);
+  }, [discId, selectedDisc]);
+
+  function handleSaveDiscInline() {
+    const clean = discTextInput.trim();
+    if (!clean) return;
+    if (discEditMode === 'rename' && selectedDisc) {
+      onRenameDiscipline(selectedDisc.id, clean);
+    } else if (discEditMode === 'add') {
+      const newId = onAddDiscipline(clean);
+      if (newId) setDiscId(newId);
+    }
+    setDiscEditMode(null);
+    setDiscTextInput('');
+  }
+
+  function handleSaveTopicInline() {
+    const clean = topicTextInput.trim();
+    if (!clean || !selectedDisc) return;
+    if (topicEditMode === 'rename' && topicoId) {
+      onRenameTopic(selectedDisc.id, topicoId, clean);
+    } else if (topicEditMode === 'add') {
+      const newTopId = onAddTopic(selectedDisc.id, clean);
+      if (newTopId) setTopicoId(newTopId);
+    }
+    setTopicEditMode(null);
+    setTopicTextInput('');
+  }
 
   function handleSubmit() {
     const date =
@@ -3130,7 +4378,7 @@ function RegistroEstudoModal({
     };
 
     const errorEntry =
-      er > 0
+      er > 0 || notaErro.trim().length > 0
         ? {
             id: 'err_reg_' + Date.now(),
             date,
@@ -3193,7 +4441,35 @@ function RegistroEstudoModal({
 
         <div className="registro-form-grid-3">
           <div className="reg-field">
-            <label>2º DISCIPLINA DO EDITAL</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <label style={{ marginBottom: 0 }}>2º MATÉRIA / DISCIPLINA</label>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  type="button"
+                  className="inline-edit-chip-btn"
+                  style={{ padding: '1px 6px', fontSize: 10 }}
+                  onClick={() => {
+                    setDiscEditMode(discEditMode === 'rename' ? null : 'rename');
+                    setDiscTextInput(selectedDisc?.nome || '');
+                  }}
+                  title="Editar/renomear matéria selecionada"
+                >
+                  ✎ Editar
+                </button>
+                <button
+                  type="button"
+                  className="inline-edit-chip-btn"
+                  style={{ padding: '1px 6px', fontSize: 10 }}
+                  onClick={() => {
+                    setDiscEditMode(discEditMode === 'add' ? null : 'add');
+                    setDiscTextInput('');
+                  }}
+                  title="Digitar e salvar nova matéria"
+                >
+                  + Nova
+                </button>
+              </div>
+            </div>
             <select value={discId} onChange={(e) => setDiscId(e.target.value)}>
               {selectedPlan.disciplinas.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -3201,12 +4477,32 @@ function RegistroEstudoModal({
                 </option>
               ))}
             </select>
+            {discEditMode && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <input
+                  type="text"
+                  value={discTextInput}
+                  onChange={(e) => setDiscTextInput(e.target.value)}
+                  placeholder={discEditMode === 'rename' ? 'Novo nome da matéria...' : 'Digite a nova matéria...'}
+                  style={{ flex: 1, padding: '6px 8px', fontSize: 12 }}
+                />
+                <button
+                  type="button"
+                  className="btn-primary-mint"
+                  style={{ padding: '5px 10px', fontSize: 11.5 }}
+                  onClick={handleSaveDiscInline}
+                >
+                  ✓ Salvar
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="reg-field">
             <label>CATEGORIA</label>
             <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
               <option value="Teoria">Teoria</option>
+              <option value="Revisão">Revisão da Matéria</option>
               <option value="Questões">Questões</option>
               <option value="Videoaula">Videoaula</option>
               <option value="Simulado">Simulado</option>
@@ -3221,7 +4517,36 @@ function RegistroEstudoModal({
 
         <div className="registro-form-grid-2">
           <div className="reg-field">
-            <label>3º TEMA / TÓPICO DA DISCIPLINA</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <label style={{ marginBottom: 0 }}>3º TEMA / TÓPICO DA DISCIPLINA</label>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  type="button"
+                  className="inline-edit-chip-btn"
+                  style={{ padding: '1px 6px', fontSize: 10 }}
+                  onClick={() => {
+                    const currTop = (selectedDisc?.topicos || []).find((t) => t.id === topicoId);
+                    setTopicEditMode(topicEditMode === 'rename' ? null : 'rename');
+                    setTopicTextInput(currTop?.assunto || '');
+                  }}
+                  title="Editar/renomear tópico selecionado"
+                >
+                  ✎ Editar
+                </button>
+                <button
+                  type="button"
+                  className="inline-edit-chip-btn"
+                  style={{ padding: '1px 6px', fontSize: 10 }}
+                  onClick={() => {
+                    setTopicEditMode(topicEditMode === 'add' ? null : 'add');
+                    setTopicTextInput('');
+                  }}
+                  title="Digitar e salvar novo tópico"
+                >
+                  + Novo
+                </button>
+              </div>
+            </div>
             <select value={topicoId} onChange={(e) => setTopicoId(e.target.value)}>
               {(selectedDisc?.topicos || []).map((t, i) => (
                 <option key={t.id} value={t.id}>
@@ -3229,32 +4554,53 @@ function RegistroEstudoModal({
                 </option>
               ))}
             </select>
+            {topicEditMode && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <input
+                  type="text"
+                  value={topicTextInput}
+                  onChange={(e) => setTopicTextInput(e.target.value)}
+                  placeholder={topicEditMode === 'rename' ? 'Novo nome do tópico...' : 'Digite o novo tópico...'}
+                  style={{ flex: 1, padding: '6px 8px', fontSize: 12 }}
+                />
+                <button
+                  type="button"
+                  className="btn-primary-mint"
+                  style={{ padding: '5px 10px', fontSize: 11.5 }}
+                  onClick={handleSaveTopicInline}
+                >
+                  ✓ Salvar
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="reg-field">
-            <label>MATERIAL / ANOTAÇÃO</label>
+            <label>MATERIAL / FONTE</label>
             <input type="text" value={material} onChange={(e) => setMaterial(e.target.value)} />
           </div>
         </div>
 
         <div className="registro-form-grid-2">
           <div className="reg-field">
-            <label style={{ color: '#5BC0DE' }}>QUESTÕES CERTAS (✓)</label>
+            <label style={{ color: '#00A859' }}>QUESTÕES CERTAS (✓)</label>
             <input type="number" min="0" value={acertos} onChange={(e) => setAcertos(e.target.value)} />
           </div>
           <div className="reg-field">
-            <label style={{ color: '#F26B5B' }}>QUESTÕES ERRADAS (✗ — VAI P/ CADERNO DE ERROS)</label>
+            <label style={{ color: '#F22819' }}>QUESTÕES ERRADAS (✗ — VAI P/ ESTATÍSTICAS E CADERNO DE ERROS)</label>
             <input type="number" min="0" value={erros} onChange={(e) => setErros(e.target.value)} />
           </div>
         </div>
 
         <div className="reg-field" style={{ marginTop: 14 }}>
-          <label style={{ color: '#F26B5B' }}>ANOTAÇÃO DO QUE ERREI (OPCIONAL)</label>
+          <label style={{ color: '#5BC0DE', fontWeight: 800 }}>
+            📝 NOTAS
+          </label>
           <textarea
             rows="3"
             value={notaErro}
             onChange={(e) => setNotaErro(e.target.value)}
-            placeholder="Anote o conceito ou raciocínio que errou. Se houver questões erradas, a nota também vai para o Caderno de Erros."
+            placeholder="Escreva suas notas ou pontos para revisar depois..."
           />
         </div>
 
@@ -3263,9 +4609,9 @@ function RegistroEstudoModal({
             type="button"
             onClick={onClose}
             style={{
-              border: '1px solid rgba(255,255,255,0.15)',
-              background: '#1E222B',
-              color: '#E2E8F0',
+              border: '1px solid var(--border-card)',
+              background: 'var(--bg-surface)',
+              color: 'var(--text-primary)',
               padding: '8px 16px',
               borderRadius: 10,
               fontWeight: 700,
@@ -3275,7 +4621,7 @@ function RegistroEstudoModal({
             Cancelar
           </button>
           <button type="button" className="btn-primary-mint" onClick={handleSubmit}>
-            ✓ Salvar no Histórico
+            ✓ Salvar no Histórico & Estatísticas
           </button>
         </div>
       </div>
