@@ -1,6 +1,52 @@
 const { useState, useEffect, useRef, useMemo } = React;
 
 const STORAGE_KEY = 'estudei_react_v5_flow_dark';
+const FLOW_STORAGE_KEY = `${STORAGE_KEY}_flow_progress`;
+const BACKUP_CSV_HEADER = ['formato', 'versao', 'exportado_em', 'dados_json'];
+
+function csvEscape(value) {
+  const text = String(value ?? '');
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  const input = String(text || '').replace(/^\uFEFF/, '');
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+    if (quoted && ch === '"' && input[i + 1] === '"') { cell += '"'; i += 1; }
+    else if (ch === '"') quoted = !quoted;
+    else if (!quoted && ch === ';') { row.push(cell); cell = ''; }
+    else if (!quoted && (ch === '\n' || ch === '\r')) {
+      if (ch === '\r' && input[i + 1] === '\n') i += 1;
+      row.push(cell); cell = '';
+      if (row.some((part) => part !== '')) rows.push(row);
+      row = [];
+    } else cell += ch;
+  }
+  if (quoted) throw new Error('O CSV está incompleto: há aspas sem fechamento.');
+  row.push(cell);
+  if (row.some((part) => part !== '')) rows.push(row);
+  return rows;
+}
+
+function loadSavedFlow() {
+  const defaults = {
+    minimized: false, timerDark: true, running: false, mode: 'flow', flowMinutes: 25,
+    breakMinutes: 5, totalCycles: 4, completedCyclesToday: 0, lastActiveDate: toISODate(0),
+    secondsLeft: 25 * 60, elapsedInCurrentRunSec: 0, startedAtTs: null, autoStartBreak: false,
+    autoPopOutOnPlay: true, planId: 'plan_trt1_ti', disciplinaId: '63615', topicoId: '63615_1',
+    menuOpen: false, pipActive: false
+  };
+  try {
+    const saved = JSON.parse(localStorage.getItem(FLOW_STORAGE_KEY) || 'null');
+    if (saved && typeof saved === 'object') return { ...defaults, ...saved, running: false, menuOpen: false, pipActive: false };
+  } catch (e) {}
+  return defaults;
+}
 
 function toISODate(offsetDays = 0) {
   const d = new Date();
@@ -184,30 +230,13 @@ function App() {
 
   // FLOW TIMER STATE (Modo Dark igual à Imagem 2 por padrão, 25 min cada bolinha, reset diário a cada 24h)
   const [flow, setFlow] = useState(() => ({
-    minimized: false,
-    timerDark: true, // Modo Dark no timer (Imagem 2)
-    running: false,
-    mode: 'flow', // 'flow' | 'break'
-    flowMinutes: 25,
-    breakMinutes: 5,
-    totalCycles: 4,
-    completedCyclesToday: 0,
-    lastActiveDate: toISODate(0), // Reseta bolinhas e minutos do dia após 24h (virada do dia!)
-    secondsLeft: 25 * 60,
-    elapsedInCurrentRunSec: 0,
-    startedAtTs: null,
-    autoStartBreak: false,
-    autoPopOutOnPlay: true,
-    planId: 'plan_trt1_ti',
-    disciplinaId: '63615',
-    topicoId: '63615_1',
-    menuOpen: false,
-    pipActive: false
+    ...loadSavedFlow()
   }));
 
   const pipWindowRef = useRef(null);
   const pipVideoRef = useRef(null);
   const pipCanvasRef = useRef(null);
+  const backupFileInputRef = useRef(null);
 
   // Save to localStorage on change
   useEffect(() => {
@@ -216,6 +245,13 @@ function App() {
     } catch (e) {}
     document.body.classList.toggle('theme-light', appData.theme === 'light');
   }, [appData]);
+
+  useEffect(() => {
+    try {
+      const { running, menuOpen, pipActive, ...portableFlow } = flow;
+      localStorage.setItem(FLOW_STORAGE_KEY, JSON.stringify(portableFlow));
+    } catch (e) {}
+  }, [flow]);
 
   // Verifica a cada 30 segundos se virou o dia (24h) para resetar as sessões/bolinhas e minutos do dia no timer!
   useEffect(() => {
@@ -228,9 +264,6 @@ function App() {
             lastActiveDate: today,
             completedCyclesToday: 0,
             running: false,
-            mode: 'flow',
-            secondsLeft: prev.flowMinutes * 60,
-            elapsedInCurrentRunSec: 0,
             startedAtTs: null
           };
         }
@@ -965,6 +998,75 @@ function App() {
     }
   }
 
+  async function exportPortableBackupCsv() {
+    try {
+      const queueResponse = await fetch('/api/tec-queue');
+      if (!queueResponse.ok) throw new Error('Não foi possível ler a fila pendente do Tec Concursos.');
+      const queueSnapshot = await queueResponse.json();
+      const { running, menuOpen, pipActive, ...portableFlow } = flow;
+      const payload = JSON.stringify({ appData, flow: portableFlow, tecQueue: queueSnapshot.items || [], tecQueueLastSync: queueSnapshot.lastSync || null });
+      const csv = '\uFEFF' + [BACKUP_CSV_HEADER, ['ESTUDEI_BACKUP', '1', new Date().toISOString(), payload]]
+        .map((row) => row.map(csvEscape).join(';')).join('\r\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `estudei_backup_${toISODate(0)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast(`<strong>Backup CSV baixado.</strong> Inclui planos, questões, histórico, caderno de erros, Flow e ${queueSnapshot.items?.length || 0} item(ns) Tec pendente(s).`);
+    } catch (error) {
+      console.error('Falha ao exportar backup CSV:', error);
+      showToast('<strong>Não foi possível exportar.</strong> Confira o espaço disponível no navegador e tente novamente.');
+    }
+  }
+
+  async function importPortableBackupCsv(file) {
+    if (!file) return;
+    try {
+      const rows = parseCsv(await file.text());
+      const header = rows[0] || [];
+      if (BACKUP_CSV_HEADER.some((column, index) => header[index] !== column)) {
+        throw new Error('Este arquivo não é um backup CSV do Estudei.');
+      }
+      const record = rows[1];
+      if (!record || record[0] !== 'ESTUDEI_BACKUP' || record[1] !== '1') {
+        throw new Error('Versão do backup inválida ou não compatível.');
+      }
+      const backup = JSON.parse(record[3] || '{}');
+      if (!backup.appData || !Array.isArray(backup.appData.plans) || backup.appData.plans.length === 0) {
+        throw new Error('O backup não contém planos e dados válidos.');
+      }
+      if (!confirm(`Importar ${backup.appData.plans.length} plano(s) do backup? Isso substituirá os dados atuais deste navegador e a fila pendente do Tec.`)) return;
+
+      const queueRestore = await fetch('/api/tec-queue/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: Array.isArray(backup.tecQueue) ? backup.tecQueue : [], lastSync: backup.tecQueueLastSync || null })
+      });
+      if (!queueRestore.ok) throw new Error('Não foi possível restaurar a fila pendente do Tec. Os dados do app não foram substituídos.');
+      const importedFlow = backup.flow && typeof backup.flow === 'object' ? backup.flow : loadSavedFlow();
+      setAppData(backup.appData);
+      setFlow((prev) => ({
+        ...prev,
+        ...importedFlow,
+        running: false,
+        startedAtTs: null,
+        menuOpen: false,
+        pipActive: false,
+        minimized: false
+      }));
+      setActiveTab('flow');
+      showToast(`<strong>Backup restaurado.</strong> Planos, questões, sessões, caderno de erros, Flow e ${Array.isArray(backup.tecQueue) ? backup.tecQueue.length : 0} item(ns) Tec pendente(s) foram importados.`);
+    } catch (error) {
+      console.error('Falha ao importar backup CSV:', error);
+      alert(`Não foi possível importar este CSV: ${error.message}`);
+    } finally {
+      if (backupFileInputRef.current) backupFileInputRef.current.value = '';
+    }
+  }
+
   function handleResetZero() {
     if (!confirm('Deseja ZERAR todos os horários, histórico de sessões e questões para 0h00min?')) return;
     const freshPlan = createInitialPlan();
@@ -1093,6 +1195,13 @@ function App() {
         </div>
 
         <div className="topbar-right">
+          <input
+            ref={backupFileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            style={{ display: 'none' }}
+            onChange={(e) => importPortableBackupCsv(e.target.files?.[0])}
+          />
           <button
             className="btn-primary-mint"
             onClick={() =>
@@ -1106,6 +1215,13 @@ function App() {
             }
           >
             + Registrar Estudo
+          </button>
+
+          <button className="btn-outline-mint" onClick={exportPortableBackupCsv} title="Baixar todos os dados em um CSV restaurável">
+            ⬇ Backup CSV
+          </button>
+          <button className="btn-outline-mint" onClick={() => backupFileInputRef.current?.click()} title="Restaurar um backup CSV do Estudei">
+            ⬆ Importar CSV
           </button>
 
           <button
@@ -2078,6 +2194,11 @@ function FlowAndHistoryView({
                         <div style={{ fontSize: 12.5, color: '#5BC0DE', fontWeight: 700, marginTop: 2 }}>
                           Tema estudado: {s.topicoNome || 'Geral'}
                         </div>
+                        {s.notaErro && (
+                          <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                            Nota do erro: {s.notaErro}
+                          </div>
+                        )}
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2951,6 +3072,7 @@ function RegistroEstudoModal({
 
   const [minutos, setMinutos] = useState(initialMinutos || 25);
   const [material, setMaterial] = useState('Sessão de 25 min');
+  const [notaErro, setNotaErro] = useState('');
   const [acertos, setAcertos] = useState(0);
   const [erros, setErros] = useState(0);
 
@@ -2995,7 +3117,8 @@ function RegistroEstudoModal({
       segundos: mins * 60,
       acertos: ac,
       erros: er,
-      material
+      material,
+      notaErro: notaErro.trim()
     };
 
     const errorEntry =
@@ -3011,7 +3134,7 @@ function RegistroEstudoModal({
             tema: temaNome,
             erros: er,
             acertos: ac,
-            observacao: material,
+            observacao: notaErro.trim(),
             origem: 'Registro de Estudo'
           }
         : null;
@@ -3115,6 +3238,16 @@ function RegistroEstudoModal({
             <label style={{ color: '#F26B5B' }}>QUESTÕES ERRADAS (✗ — VAI P/ CADERNO DE ERROS)</label>
             <input type="number" min="0" value={erros} onChange={(e) => setErros(e.target.value)} />
           </div>
+        </div>
+
+        <div className="reg-field" style={{ marginTop: 14 }}>
+          <label style={{ color: '#F26B5B' }}>ANOTAÇÃO DO QUE ERREI (OPCIONAL)</label>
+          <textarea
+            rows="3"
+            value={notaErro}
+            onChange={(e) => setNotaErro(e.target.value)}
+            placeholder="Anote o conceito ou raciocínio que errou. Se houver questões erradas, a nota também vai para o Caderno de Erros."
+          />
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>

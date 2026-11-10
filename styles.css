@@ -1133,6 +1133,8 @@ body {
   padding: 26px 28px;
   box-shadow: 0 26px 64px rgba(0, 0, 0, 0.55);
   position: relative;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .registro-modal-title {
@@ -1195,7 +1197,8 @@ body {
   letter-spacing: 0.4px;
 }
 .reg-field input,
-.reg-field select {
+.reg-field select,
+.reg-field textarea {
   width: 100%;
   border: none;
   border-bottom: 1.5px solid rgba(255, 255, 255, 0.16);
@@ -1207,12 +1210,25 @@ body {
   border-radius: 6px 6px 0 0;
   outline: none;
 }
+.reg-field textarea {
+  min-height: 76px;
+  resize: vertical;
+  border: 1px solid rgba(242, 107, 91, 0.35);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: 500 13px/1.45 Inter, sans-serif;
+}
+.reg-field textarea::placeholder {
+  color: #7F8A9A;
+  font-weight: 400;
+}
 .reg-field select option {
   background: #1E222B;
   color: #F8FAFC;
 }
 .reg-field input:focus,
-.reg-field select:focus {
+.reg-field select:focus,
+.reg-field textarea:focus {
   border-bottom-color: #5BC0DE;
 }
 

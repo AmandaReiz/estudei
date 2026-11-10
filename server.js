@@ -5,7 +5,7 @@ const path = require('path');
 const url = require('url');
 const { exec } = require('child_process');
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = __dirname;
 const SYNC_FILE = path.join(__dirname, 'tec-sync-queue.json');
 
@@ -44,6 +44,26 @@ const server = http.createServer(async (req, res) => {
     exec(`explorer.exe "${PUBLIC_DIR}"`);
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     return res.end(JSON.stringify({ ok: true, path: PUBLIC_DIR }));
+  }
+
+  // Restore the pending Tec Concursos queue from a portable Estudei backup.
+  if (pathname === '/api/tec-queue/restore' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        if (!Array.isArray(payload.items)) throw new Error('A fila de sincronização precisa ser uma lista.');
+        const restored = { items: payload.items, lastSync: payload.lastSync || new Date().toISOString() };
+        fs.writeFileSync(SYNC_FILE, JSON.stringify(restored, null, 2), 'utf8');
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, restored: restored.items.length }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
+    return;
   }
 
   // Receive synced activities / questions from Tec Concursos
@@ -106,6 +126,6 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`Estudei Pro (React) rodando em http://localhost:${PORT}`);
 });
