@@ -35,7 +35,7 @@ function parseCsv(text) {
 
 function loadSavedFlow() {
   const defaults = {
-    minimized: false, timerDark: true, running: false, mode: 'flow', flowMinutes: 25,
+    minimized: false, timerDark: true, running: false, mode: 'flow', studyContext: 'topic', flowMinutes: 25,
     breakMinutes: 5, totalCycles: 4, completedCyclesToday: 0, lastActiveDate: toISODate(0),
     secondsLeft: 25 * 60, elapsedInCurrentRunSec: 0, startedAtTs: null, autoStartBreak: false,
     autoPopOutOnPlay: true, planId: 'plan_trt1_ti', disciplinaId: '63615', topicoId: '63615_1',
@@ -335,6 +335,7 @@ function App() {
     planId,
     discId,
     topicoId,
+    studyContext = 'topic',
     elapsedSec,
     startedAtTs,
     endedAtTs,
@@ -349,14 +350,15 @@ function App() {
     const er = Math.max(0, Number(erros) || 0);
 
     const planObj = appData.plans.find((p) => p.id === planId) || activePlan;
-    const disc = planObj.disciplinas.find((d) => d.id === discId) || planObj.disciplinas[0];
+    const isAnkiReview = studyContext === 'anki';
+    const disc = isAnkiReview ? null : (planObj.disciplinas.find((d) => d.id === discId) || planObj.disciplinas[0]);
     const top = disc ? disc.topicos.find((t) => t.id === topicoId) || disc.topicos[0] : null;
-    if (!disc) return;
+    if (!disc && !isAnkiReview) return;
 
     const today = toISODate(0);
     const startClock = formatTimeFromTimestamp(startedAtTs || Date.now() - sec * 1000);
     const endClock = formatTimeFromTimestamp(endedAtTs || Date.now());
-    const temaNome = top ? top.assunto : disc.nome;
+    const temaNome = isAnkiReview ? '' : (top ? top.assunto : disc.nome);
 
     updatePlanById(planObj.id, (plan) => {
       const newSession = {
@@ -367,11 +369,11 @@ function App() {
         time: endClock.slice(0, 5),
         editalId: plan.id,
         editalNome: plan.nome,
-        categoria: 'Flow',
-        disciplinaId: disc.id,
-        disciplinaNome: disc.nome,
+        categoria: isAnkiReview ? 'Anki' : 'Flow',
+        disciplinaId: disc?.id || '',
+        disciplinaNome: isAnkiReview ? 'Anki' : disc.nome,
         topicoId: top ? top.id : '',
-        topicoNome: temaNome,
+        topicoNome: isAnkiReview ? '' : temaNome,
         minutos: mins,
         segundos: sec,
         acertos: ac,
@@ -382,7 +384,7 @@ function App() {
 
       const sessions = [...(plan.sessions || []), newSession];
 
-      const disciplinas = plan.disciplinas.map((d) => {
+      const disciplinas = isAnkiReview ? plan.disciplinas : plan.disciplinas.map((d) => {
         if (d.id !== disc.id) return d;
         return {
           ...d,
@@ -405,14 +407,14 @@ function App() {
           date: today,
           time: endClock,
           editalNome: plan.nome,
-          disciplinaId: disc.id,
-          disciplinaNome: disc.nome,
+          disciplinaId: disc?.id || '',
+          disciplinaNome: isAnkiReview ? 'Anki' : disc.nome,
           topicoId: top ? top.id : '',
-          tema: temaNome,
+          tema: isAnkiReview ? 'Revisão livre (Anki)' : temaNome,
           erros: er,
           acertos: ac,
           observacao: notaErro || `Sessão Flow (${startClock} → ${endClock})`,
-          origem: 'Flow Timer'
+          origem: isAnkiReview ? 'Anki (Flow Timer)' : 'Flow Timer'
         });
       }
 
@@ -425,7 +427,7 @@ function App() {
     });
 
     showToast(
-      `<strong>✓ Sessão registrada no Histórico!</strong> <span class="highlight-mint">${formatExactSeconds(sec)}</span> (${startClock} → ${endClock}) em <strong>${disc.nome}</strong>${ac + er > 0 ? ` • ✓ ${ac} / ✗ ${er}` : ''}.`
+      `<strong>✓ Sessão registrada no Histórico!</strong> <span class="highlight-mint">${formatExactSeconds(sec)}</span> (${startClock} → ${endClock}) em <strong>${isAnkiReview ? 'Revisão Anki (tema livre)' : disc.nome}</strong>${ac + er > 0 ? ` • ✓ ${ac} / ✗ ${er}` : ''}.`
     );
   }
 
@@ -469,6 +471,7 @@ function App() {
               planId: prev.planId,
               discId: prev.disciplinaId,
               topicoId: prev.topicoId,
+              studyContext: prev.studyContext || 'topic',
               isFullCycleComplete: true,
               acertos: 0,
               erros: 0,
@@ -508,7 +511,7 @@ function App() {
   // Atualiza título da aba e janela flutuante Picture-in-Picture
   useEffect(() => {
     const clockStr = formatSecondsToClock(flow.secondsLeft);
-    const shortDisc = currentFlowDisc ? currentFlowDisc.nome.replace('TI - ', '') : 'Flow';
+    const shortDisc = flow.studyContext === 'anki' ? 'Anki' : (currentFlowDisc ? currentFlowDisc.nome.replace('TI - ', '') : 'Flow');
     if (flow.running) {
       document.title = `[${clockStr}] ${flow.mode === 'break' ? '☕ Break' : shortDisc} — Flow`;
     } else {
@@ -523,7 +526,8 @@ function App() {
     flow.completedCyclesToday,
     flow.totalCycles,
     flow.flowMinutes,
-    currentFlowDisc
+    currentFlowDisc,
+    flow.studyContext
   ]);
 
   /* ========================================================================
@@ -583,6 +587,7 @@ function App() {
       planId: flow.planId,
       discId: flow.disciplinaId,
       topicoId: flow.topicoId,
+      studyContext: flow.studyContext || 'topic',
       isFullCycleComplete: elapsed >= flow.flowMinutes * 60,
       acertos: 0,
       erros: 0,
@@ -616,6 +621,7 @@ function App() {
           planId: flow.planId,
           discId: flow.disciplinaId,
           topicoId: flow.topicoId,
+          studyContext: flow.studyContext || 'topic',
           isFullCycleComplete: false,
           acertos: 0,
           erros: 0,
@@ -653,6 +659,7 @@ function App() {
       minimized: false,
       running: true,
       mode: 'flow',
+      studyContext: 'topic',
       planId: activePlan.id,
       disciplinaId: disc.id,
       topicoId: top ? top.id : '',
@@ -771,7 +778,7 @@ function App() {
         <div class="mac"><span class="mdot red"></span><span class="mdot"></span><span class="mdot"></span></div>
         <span id="pipReset" style="cursor:pointer;font-size:16px;" title="Resetar sem registrar">↺</span>
       </div>
-      <div class="title">${flow.mode === 'break' ? 'Break' : 'Flow'}</div>
+      <div class="title">${flow.mode === 'break' ? 'Break' : flow.studyContext === 'anki' ? 'Anki' : 'Flow'}</div>
       <div class="digits">${clockStr}</div>
       <div class="dots">${dotsHtml}</div>
       <div class="btns">
@@ -800,7 +807,7 @@ function App() {
     ctx.fillStyle = isDark ? '#FFFFFF' : '#09090B';
     ctx.font = '500 22px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(flow.mode === 'break' ? 'Break' : 'Flow', c.width / 2, 48);
+    ctx.fillText(flow.mode === 'break' ? 'Break' : flow.studyContext === 'anki' ? 'Anki' : 'Flow', c.width / 2, 48);
 
     ctx.font = '400 76px Inter, sans-serif';
     ctx.fillText(clockStr, c.width / 2, 135);
@@ -1409,6 +1416,7 @@ function App() {
               planId: finishPrompt.planId,
               discId: finishPrompt.discId,
               topicoId: finishPrompt.topicoId,
+              studyContext: finishPrompt.studyContext || 'topic',
               elapsedSec: finishPrompt.elapsedSec,
               startedAtTs: finishPrompt.startedAtTs,
               endedAtTs: finishPrompt.endedAtTs,
@@ -1570,7 +1578,7 @@ function ExactFlowTimerCard({
 
       {/* CENTER TITLE: "Flow" or "Break" */}
       <div className="flow-exact-title" style={compact ? { fontSize: 20 } : {}}>
-        {flow.mode === 'break' ? 'Break' : 'Flow'}
+        {flow.mode === 'break' ? 'Break' : flow.studyContext === 'anki' ? 'Anki' : 'Flow'}
       </div>
 
       {/* HUGE CRISP DIGITS: "13:12" / "25:00" */}
@@ -1823,11 +1831,14 @@ function FinishSessionQuestionsModal({
             </span>
           </div>
           <div style={{ marginTop: 4 }}>
-            📚 <strong>Disciplina:</strong> {disc?.nome}
+            📚 <strong>{promptData.studyContext === 'anki' ? 'Modo de revisão:' : 'Disciplina:'}</strong>{' '}
+            {promptData.studyContext === 'anki' ? 'Anki · tema livre' : disc?.nome}
           </div>
-          <div style={{ marginTop: 2 }}>
-            📌 <strong>Tema estudado:</strong> {top?.assunto || disc?.nome}
-          </div>
+          {promptData.studyContext !== 'anki' && (
+            <div style={{ marginTop: 2 }}>
+              📌 <strong>Tema estudado:</strong> {top?.assunto || disc?.nome}
+            </div>
+          )}
         </div>
 
         <div style={{ fontSize: 12, fontWeight: 800, color: '#94A3B8', marginBottom: 10 }}>
@@ -2006,69 +2017,66 @@ function FlowAndHistoryView({
         <div className="estudei-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
           {/* SELETOR DE EDITAL -> DISCIPLINA -> TEMA */}
           <div className="estudei-white-box" style={{ width: '100%' }}>
-            <div style={{ fontSize: 11, fontWeight: 800, color: '#64748B', marginBottom: 10 }}>
-              O QUE VOCÊ VAI ESTUDAR AGORA NO FLOW:
+            <div className="flow-study-heading">O que vamos estudar hoje?</div>
+            <div className="flow-study-choice" role="group" aria-label="Escolha o modo de estudo">
+              <button
+                type="button"
+                className={`flow-study-choice-button ${flow.studyContext !== 'anki' ? 'selected' : ''}`}
+                aria-pressed={flow.studyContext !== 'anki'}
+                disabled={flow.running || flow.elapsedInCurrentRunSec > 0}
+                onClick={() => setFlow((p) => ({ ...p, studyContext: 'topic' }))}
+              >📚 Tópico do edital</button>
+              <button
+                type="button"
+                className={`flow-study-choice-button ${flow.studyContext === 'anki' ? 'selected' : ''}`}
+                aria-pressed={flow.studyContext === 'anki'}
+                disabled={flow.running || flow.elapsedInCurrentRunSec > 0}
+                onClick={() => setFlow((p) => ({ ...p, studyContext: 'anki' }))}
+              >🧠 Anki · revisão livre</button>
             </div>
 
-            <div className="reg-field" style={{ marginBottom: 10 }}>
-              <label>1º EDITAL</label>
-              <select
-                value={selectedPlan.id}
-                onChange={(e) => {
-                  const newP = plans.find((p) => p.id === e.target.value) || activePlan;
-                  const firstD = newP.disciplinas[0];
-                  setFlow((p) => ({
-                    ...p,
-                    planId: newP.id,
-                    disciplinaId: firstD?.id || '',
-                    topicoId: firstD?.topicos[0]?.id || ''
-                  }));
-                }}
-              >
-                {plans.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="registro-form-grid-2" style={{ marginBottom: 0 }}>
-              <div className="reg-field">
-                <label>2º DISCIPLINA DO TRT</label>
-                <select
-                  value={currentDisc?.id || ''}
-                  onChange={(e) => {
-                    const newDisc = selectedPlan.disciplinas.find((d) => d.id === e.target.value);
-                    setFlow((p) => ({
-                      ...p,
-                      disciplinaId: e.target.value,
-                      topicoId: newDisc?.topicos[0]?.id || ''
-                    }));
-                  }}
-                >
-                  {selectedPlan.disciplinas.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.nome}
-                    </option>
-                  ))}
-                </select>
+            {flow.studyContext === 'anki' ? (
+              <div className="flow-anki-hint">
+                Revisão livre: escolha no Anki o que quiser revisar e inicie o timer. Nenhum tópico será exigido.
               </div>
+            ) : (
+              <>
+                <div className="reg-field" style={{ marginBottom: 10 }}>
+                  <label>1º EDITAL</label>
+                  <select
+                    value={selectedPlan.id}
+                    onChange={(e) => {
+                      const newP = plans.find((p) => p.id === e.target.value) || activePlan;
+                      const firstD = newP.disciplinas[0];
+                      setFlow((p) => ({ ...p, planId: newP.id, disciplinaId: firstD?.id || '', topicoId: firstD?.topicos[0]?.id || '' }));
+                    }}
+                  >
+                    {plans.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                  </select>
+                </div>
 
-              <div className="reg-field">
-                <label>3º TEMA / TÓPICO DA SESSÃO</label>
-                <select
-                  value={currentTopic?.id || ''}
-                  onChange={(e) => setFlow((p) => ({ ...p, topicoId: e.target.value }))}
-                >
-                  {(currentDisc?.topicos || []).map((t, idx) => (
-                    <option key={t.id} value={t.id}>
-                      {idx + 1}. {t.assunto}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+                <div className="registro-form-grid-2" style={{ marginBottom: 0 }}>
+                  <div className="reg-field">
+                    <label>2º DISCIPLINA</label>
+                    <select
+                      value={currentDisc?.id || ''}
+                      onChange={(e) => {
+                        const newDisc = selectedPlan.disciplinas.find((d) => d.id === e.target.value);
+                        setFlow((p) => ({ ...p, disciplinaId: e.target.value, topicoId: newDisc?.topicos[0]?.id || '' }));
+                      }}
+                    >
+                      {selectedPlan.disciplinas.map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
+                    </select>
+                  </div>
+                  <div className="reg-field">
+                    <label>3º TEMA / TÓPICO</label>
+                    <select value={currentTopic?.id || ''} onChange={(e) => setFlow((p) => ({ ...p, topicoId: e.target.value }))}>
+                      {(currentDisc?.topicos || []).map((t, idx) => <option key={t.id} value={t.id}>{idx + 1}. {t.assunto}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* CRONÔMETRO FLOW IDÊNTICO À IMAGEM 2 (DARK) / IMAGEM 1 (LIGHT) */}
@@ -2102,8 +2110,8 @@ function FlowAndHistoryView({
 
             <div className="flow-stats-count">
               {periodTab === 'D'
-                ? `${todayStats.todayCount} Flows Hoje (${formatMinutesToHm(todayStats.todayMin)})`
-                : `${weeklyBarData.totalFlowsInWeek} Flows (${formatMinutesToHm(weeklyBarData.totalMinInWeek)})`}
+                ? `${todayStats.todayCount} Sessões Hoje (${formatMinutesToHm(todayStats.todayMin)})`
+                : `${weeklyBarData.totalFlowsInWeek} Sessões (${formatMinutesToHm(weeklyBarData.totalMinInWeek)})`}
             </div>
 
             <div className="flow-stats-nav">
@@ -2192,7 +2200,7 @@ function FlowAndHistoryView({
                           {s.disciplinaNome}
                         </div>
                         <div style={{ fontSize: 12.5, color: '#5BC0DE', fontWeight: 700, marginTop: 2 }}>
-                          Tema estudado: {s.topicoNome || 'Geral'}
+                          {s.categoria === 'Anki' ? 'Revisão Anki · tema livre' : `Tema estudado: ${s.topicoNome || 'Geral'}`}
                         </div>
                         {s.notaErro && (
                           <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 4, whiteSpace: 'pre-wrap' }}>
