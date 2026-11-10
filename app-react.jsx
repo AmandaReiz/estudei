@@ -2025,14 +2025,14 @@ function FlowAndHistoryView({
                 aria-pressed={flow.studyContext !== 'anki'}
                 disabled={flow.running || flow.elapsedInCurrentRunSec > 0}
                 onClick={() => setFlow((p) => ({ ...p, studyContext: 'topic' }))}
-              >📚 Tópico do edital</button>
+              >Edital</button>
               <button
                 type="button"
                 className={`flow-study-choice-button ${flow.studyContext === 'anki' ? 'selected' : ''}`}
                 aria-pressed={flow.studyContext === 'anki'}
                 disabled={flow.running || flow.elapsedInCurrentRunSec > 0}
                 onClick={() => setFlow((p) => ({ ...p, studyContext: 'anki' }))}
-              >🧠 Anki · revisão livre</button>
+              >Anki</button>
             </div>
 
             {flow.studyContext === 'anki' ? (
