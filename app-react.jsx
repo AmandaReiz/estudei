@@ -4,6 +4,42 @@ const STORAGE_KEY = 'estudei_react_v5_flow_dark';
 const FLOW_STORAGE_KEY = `${STORAGE_KEY}_flow_progress`;
 const BACKUP_CSV_HEADER = ['formato', 'versao', 'exportado_em', 'dados_json'];
 
+/* ==========================================================================
+   SINCRONIZAÇÃO NA NUVEM (AWS Lambda + DynamoDB)
+   O token fica só no navegador (localStorage); entra pelo link #token=... uma vez.
+   ========================================================================== */
+const CLOUD_API_URL = 'https://divxuj4ihh7vbmtjld4lnvrx3q0xellw.lambda-url.us-east-1.on.aws/';
+const CLOUD_TOKEN_KEY = 'estudei_cloud_token';
+const CLOUD_UPDATED_KEY = 'estudei_cloud_updated_at';
+
+(function captureCloudTokenFromHash() {
+  try {
+    const m = /[#&]token=([A-Za-z0-9_-]+)/.exec(window.location.hash || '');
+    if (m) {
+      localStorage.setItem(CLOUD_TOKEN_KEY, m[1]);
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  } catch (e) {}
+})();
+
+function getCloudToken() {
+  try { return localStorage.getItem(CLOUD_TOKEN_KEY) || ''; } catch (e) { return ''; }
+}
+
+async function cloudRequest(method, body) {
+  const token = getCloudToken();
+  if (!token) throw new Error('sem token');
+  const res = await fetch(CLOUD_API_URL + 'state', {
+    method,
+    headers: { 'x-estudei-token': token, ...(body ? { 'content-type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 409) return { stale: true, ...data };
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
 function csvEscape(value) {
   const text = String(value ?? '');
   return `"${text.replace(/"/g, '""')}"`;
@@ -297,6 +333,98 @@ function App() {
     } catch (e) {}
     document.body.classList.toggle('theme-light', appData.theme === 'light');
   }, [appData]);
+
+  /* ---------- NUVEM: carrega ao abrir, envia ao alterar, atualiza ao voltar para a aba ---------- */
+  const [cloudStatus, setCloudStatus] = useState(getCloudToken() ? 'syncing' : 'off'); // off | syncing | ok | error
+  const cloudReadyRef = useRef(false);
+  const cloudSkipNextPushRef = useRef(false);
+  const cloudDirtyRef = useRef(false);
+  const cloudPushTimerRef = useRef(null);
+  const appDataRef = useRef(appData);
+  appDataRef.current = appData;
+
+  async function cloudPushNow() {
+    if (!getCloudToken()) return;
+    const ts = Date.now();
+    try {
+      setCloudStatus('syncing');
+      const r = await cloudRequest('PUT', { appData: appDataRef.current, updatedAt: ts });
+      if (r.stale) {
+        await cloudPull(true);
+        return;
+      }
+      localStorage.setItem(CLOUD_UPDATED_KEY, String(r.updatedAt || ts));
+      cloudDirtyRef.current = false;
+      setCloudStatus('ok');
+    } catch (e) {
+      setCloudStatus('error');
+    }
+  }
+
+  async function cloudPull(forceApply = false) {
+    if (!getCloudToken()) return;
+    try {
+      setCloudStatus('syncing');
+      const r = await cloudRequest('GET');
+      const localTs = Number(localStorage.getItem(CLOUD_UPDATED_KEY) || 0);
+      if (!r.state) {
+        await cloudPushNow(); // nuvem vazia: sobe os dados deste navegador
+        return;
+      }
+      // Proteção: navegador nunca sincronizado que já tem sessões, e nuvem sem sessões -> sobe os dados locais
+      const countSessions = (ad) => ((ad && ad.plans) || []).reduce((a, p) => a + ((p.sessions || []).length), 0);
+      if (localTs === 0 && countSessions(appDataRef.current) > 0 && countSessions(r.state.appData) === 0) {
+        await cloudPushNow();
+        return;
+      }
+      if (r.state.updatedAt > localTs || forceApply) {
+        if (!cloudDirtyRef.current || forceApply) {
+          cloudSkipNextPushRef.current = true;
+          localStorage.setItem(CLOUD_UPDATED_KEY, String(r.state.updatedAt));
+          setAppData(r.state.appData);
+        }
+        setCloudStatus('ok');
+      } else if (localTs > r.state.updatedAt) {
+        await cloudPushNow();
+      } else {
+        setCloudStatus('ok');
+      }
+    } catch (e) {
+      setCloudStatus('error');
+    } finally {
+      cloudReadyRef.current = true;
+    }
+  }
+
+  useEffect(() => {
+    if (!getCloudToken()) { cloudReadyRef.current = true; return; }
+    cloudPull();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && cloudReadyRef.current && !cloudDirtyRef.current) cloudPull();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
+  useEffect(() => {
+    if (!cloudReadyRef.current || !getCloudToken()) return;
+    if (cloudSkipNextPushRef.current) { cloudSkipNextPushRef.current = false; return; }
+    cloudDirtyRef.current = true;
+    clearTimeout(cloudPushTimerRef.current);
+    cloudPushTimerRef.current = setTimeout(cloudPushNow, 1500);
+  }, [appData]);
+
+  function handleCloudButton() {
+    if (!getCloudToken()) {
+      const t = (prompt('Cole o token da nuvem (enviado no link do app):') || '').trim();
+      if (!/^[A-Za-z0-9_-]{16,}$/.test(t)) return;
+      localStorage.setItem(CLOUD_TOKEN_KEY, t);
+      cloudReadyRef.current = false;
+      cloudPull();
+    } else {
+      cloudPushNow();
+    }
+  }
 
   useEffect(() => {
     try {
@@ -1479,6 +1607,14 @@ function App() {
             title="Destaca o mini-relógio digital em Modo Dark para ficar visível mesmo com o navegador minimizado!"
           >
             📌 Fixar Relógio Fora do Navegador
+          </button>
+
+          <button
+            className="btn-outline-mint"
+            onClick={handleCloudButton}
+            title={cloudStatus === 'off' ? 'Conectar à nuvem (AWS) para salvar seus dados em qualquer dispositivo' : 'Salvo na nuvem (AWS). Clique para sincronizar agora'}
+          >
+            {cloudStatus === 'off' ? '☁ Conectar nuvem' : cloudStatus === 'syncing' ? '☁ Sincronizando…' : cloudStatus === 'error' ? '☁ Erro — tentar de novo' : '☁ Salvo na nuvem'}
           </button>
 
           <button
